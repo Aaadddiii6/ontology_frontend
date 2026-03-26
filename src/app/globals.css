@@ -3,19 +3,169 @@
 :root {
   --font-size-base: 16px;
   --module-accent: #1e293b;
-  --module-bg-tint: rgba(30,41,59,0.02);
+  --module-bg-tint: rgba(30, 41, 59, 0.02);
 }
-html { font-size: var(--font-size-base); }
-body { background: #f4f3f8; overflow: hidden; }
 
-.module-defence { --module-accent: #b43c3c; --module-bg-tint: rgba(180,60,60,0.03); }
-.module-economy { --module-accent: #328c50; --module-bg-tint: rgba(50,140,80,0.03); }
-.module-geopolitics { --module-accent: #3c64c8; --module-bg-tint: rgba(60,100,200,0.03); }
-.module-climate { --module-accent: #b4781e; --module-bg-tint: rgba(180,120,30,0.03); }
+html {
+  font-size: var(--font-size-base);
+}
 
-.high-contrast { filter: contrast(1.4); }
-.high-contrast * { border-width: 1px !important; }
-.reduce-motion * { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+body {
+  overflow: hidden;
+  background: #0f172a;
+  transition: background 1s ease;
+}
 
-* { box-sizing: border-box; }
-canvas { display: block; }
+body.day-mode {
+  background: radial-gradient(
+    circle at 50% 50%,
+    #ffffff 0%,
+    #f0f4ff 50%,
+    #e0e7ff 100%
+  );
+  color: #1e293b;
+}
+
+body.night-mode {
+  background: radial-gradient(
+    circle at 50% 50%,
+    #0f172a 0%,
+    #020617 50%,
+    #000000 100%
+  );
+  color: #f8fafc;
+}
+
+/* Fix readability in day mode */
+.day-mode nav,
+.day-mode aside {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(24px) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+.day-mode nav span,
+.day-mode nav button,
+.day-mode aside span,
+.day-mode aside .text-white {
+  color: #0f172a !important;
+}
+
+.day-mode .text-slate-400,
+.day-mode .text-slate-500 {
+  color: #475569 !important;
+}
+
+.day-mode .bg-white\/5 {
+  background: rgba(0, 0, 0, 0.05) !important;
+}
+
+.day-mode .border-white\/5,
+.day-mode .border-white\/10 {
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+.day-mode .glass-morphism {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+}
+
+.module-defence {
+  --module-accent: #b43c3c;
+}
+.module-economy {
+  --module-accent: #328c50;
+}
+.module-geopolitics {
+  --module-accent: #3c64c8;
+}
+.module-climate {
+  --module-accent: #b4781e;
+}
+
+.high-contrast {
+  filter: contrast(1.4);
+}
+.high-contrast * {
+  border-width: 1px !important;
+}
+.reduce-motion * {
+  transition-duration: 0ms !important;
+  animation-duration: 0ms !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+canvas {
+  display: block;
+}
+
+.animate-spin-slow {
+  animation: spin 8s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.glass-morphism {
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.text-glow {
+  text-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+}
+
+.shadow-glow {
+  box-shadow: 0 0 30px rgba(99, 102, 241, 0.2);
+}
+
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes drift {
+  0% {
+    transform: translateX(0px);
+  }
+  50% {
+    transform: translateX(30px);
+  }
+  100% {
+    transform: translateX(0px);
+  }
+}
+
+@keyframes float-up {
+  0% {
+    transform: translateY(100vh);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.6;
+  }
+  90% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(-100px);
+    opacity: 0;
+  }
+}

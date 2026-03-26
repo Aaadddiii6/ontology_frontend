@@ -31,6 +31,13 @@ export type ActiveModule =
   | "geopolitics"
   | "climate";
 
+export interface RelationEdge {
+  fromCountry: string;
+  toCountry: string;
+  weight: number; // 0-1, controls line opacity/thickness
+  moduleColor: string; // hex string
+}
+
 export interface HoverPosition {
   x: number;
   y: number;

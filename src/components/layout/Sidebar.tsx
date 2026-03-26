@@ -1,72 +1,131 @@
-import React from 'react';
-import { Map, Activity, BarChart2, Settings, User } from 'lucide-react';
-import { MODULE_CONFIGS } from '../../lib/api';
-import { ActiveModule } from '../../types';
+import React from "react";
+import {
+  Globe,
+  Activity,
+  BarChart3,
+  Settings,
+  User,
+  Zap,
+  Database,
+  ShieldCheck,
+  LayoutGrid,
+} from "lucide-react";
+import { motion } from "framer-motion";
+import { MODULE_CONFIGS } from "../../lib/api";
+import { ActiveModule } from "../../types";
 
 interface SidebarProps {
   activeModule: ActiveModule;
 }
 
 const navItems = [
-  { icon: Map, label: 'World Map', key: 'map' },
-  { icon: Activity, label: 'Simulator', key: 'simulator' },
-  { icon: BarChart2, label: 'Analytics', key: 'analytics' },
+  { icon: Globe, label: "Overview", key: "map" },
+  { icon: Activity, label: "Simulation", key: "simulator" },
+  { icon: Database, label: "Queries", key: "registry" },
 ];
 
 const bottomNavItems = [
-  { icon: Settings, label: 'Settings', key: 'settings' },
-  { icon: User, label: 'Profile', key: 'profile' },
+  { icon: ShieldCheck, label: "Security", key: "security" },
+  { icon: Settings, label: "Config", key: "settings" },
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ activeModule }) => {
-  const accentColor = MODULE_CONFIGS[activeModule]?.accent || '#1e293b';
-
   return (
-    <aside
-      className="fixed left-0 top-[52px] bottom-0 z-50 w-[52px] hover:w-[200px] transition-all duration-200 ease-in-out overflow-hidden border-r group"
-      style={{
-        background: 'rgba(255,255,255,0.95)',
-        borderColor: 'rgba(0,0,0,0.08)',
-      }}
-    >
-      <ul className="flex flex-col h-full p-2">
-        {navItems.map(item => {
-          const isActive = item.key === 'map'; // Assuming 'map' is always active for now
-          return (
-            <li
-              key={item.key}
-              className="flex items-center h-11 px-3.5 gap-3 cursor-pointer rounded-lg relative"
-              style={{
-                backgroundColor: isActive ? `${accentColor}14` : 'transparent',
-              }}
-            >
-              {isActive && (
-                <div
-                  className="absolute left-0 w-1 h-6 rounded-r-full"
-                  style={{ backgroundColor: accentColor }}
-                />
-              )}
-              <item.icon size={20} style={{ color: isActive ? accentColor : '#888' }} className="shrink-0" />
-              <span
-                className="text-sm font-medium text-gray-700 whitespace-nowrap transition-opacity duration-100 opacity-0 group-hover:opacity-100"
+    <aside className="fixed left-0 top-[64px] bottom-0 z-[60] w-[72px] hover:w-[240px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden bg-slate-950/40 backdrop-blur-2xl border-r border-white/5 group shadow-2xl">
+      <div className="flex flex-col h-full py-6">
+        {/* Top Navigation */}
+        <div className="flex flex-col gap-2 px-3">
+          {navItems.map((item, index) => {
+            const isActive = item.key === "map";
+            return (
+              <motion.div
+                key={item.key}
+                whileHover={{ x: 4 }}
+                className={`relative flex items-center h-12 rounded-xl cursor-pointer transition-all duration-300 ${
+                  isActive
+                    ? "bg-indigo-500/10 text-white"
+                    : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
+                }`}
               >
+                {isActive && (
+                  <motion.div
+                    layoutId="sidebar-active"
+                    className="absolute left-0 w-1 h-6 bg-indigo-500 rounded-r-full shadow-[0_0_10px_rgba(99,102,241,0.5)]"
+                  />
+                )}
+
+                <div className="w-[48px] flex items-center justify-center shrink-0">
+                  <item.icon
+                    size={20}
+                    className={isActive ? "text-indigo-400" : ""}
+                  />
+                </div>
+
+                <span className="text-[13px] font-bold tracking-tight whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-100">
+                  {item.label}
+                </span>
+
+                {isActive && (
+                  <div className="absolute right-4 w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse opacity-0 group-hover:opacity-100" />
+                )}
+              </motion.div>
+            );
+          })}
+        </div>
+
+        <div className="my-6 mx-4 border-t border-white/5 opacity-50" />
+
+        {/* System Stats Section (Visible on Hover) */}
+        <div className="px-6 mb-auto opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none group-hover:pointer-events-auto">
+          <div className="space-y-4">
+            <div className="flex flex-col gap-1">
+              <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                <span>Core Load</span>
+                <span className="text-indigo-400">24%</span>
+              </div>
+              <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: "24%" }}
+                  className="h-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Navigation */}
+        <div className="flex flex-col gap-2 px-3 mt-auto">
+          {bottomNavItems.map((item) => (
+            <div
+              key={item.key}
+              className="flex items-center h-12 rounded-xl text-slate-500 hover:text-slate-300 hover:bg-white/5 cursor-pointer transition-all duration-300"
+            >
+              <div className="w-[48px] flex items-center justify-center shrink-0">
+                <item.icon size={20} />
+              </div>
+              <span className="text-[13px] font-bold tracking-tight whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-100">
                 {item.label}
               </span>
-            </li>
-          );
-        })}
+            </div>
+          ))}
 
-        <div className="mt-auto" />
-
-        {bottomNavItems.map(item => (
-          <li key={item.key} className="flex items-center h-11 px-3.5 gap-3 cursor-pointer rounded-lg">
-            <item.icon size={20} className="text-gray-400 shrink-0" />
-            <span className="text-sm font-medium text-gray-700 whitespace-nowrap transition-opacity duration-100 opacity-0 group-hover:opacity-100">
-              {item.label}
-            </span>
-          </li>
-        ))}
-      </ul>
+          {/* User Profile */}
+          <div className="mt-2 p-2 flex items-center gap-3 bg-white/5 rounded-2xl border border-white/5 cursor-pointer hover:bg-white/10 transition-all">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-black text-xs shrink-0 shadow-lg">
+              JD
+            </div>
+            <div className="flex flex-col overflow-hidden opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+              <span className="text-xs font-bold text-white truncate">
+                John Doe
+              </span>
+              <span className="text-[10px] text-slate-500 font-medium truncate uppercase tracking-widest">
+                Admin Level 4
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
     </aside>
   );
 };

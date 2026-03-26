@@ -1,6 +1,7 @@
-import React from 'react';
-import { LayoutGrid, Globe } from 'lucide-react';
-import { MapMode } from '../../types';
+import React from "react";
+import { LayoutGrid, Globe, Box } from "lucide-react";
+import { motion } from "framer-motion";
+import { MapMode } from "../../types";
 
 interface MapToggleProps {
   mode: MapMode;
@@ -8,44 +9,59 @@ interface MapToggleProps {
   isTransitioning: boolean;
 }
 
-const MapToggle: React.FC<MapToggleProps> = ({ mode, onToggle, isTransitioning }) => {
-  const isFlat = mode === 'flat';
-  const isGlobe = mode === 'globe' || mode === 'globe-3d';
-
-  const getButtonClasses = (isActive: boolean) => {
-    return `flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 ${isActive ? 'bg-slate-800 text-white' : 'bg-transparent text-gray-600'}`;
-  };
-
-  const modeText = {
-    flat: 'Flat Map',
-    globe: 'Globe',
-    'globe-3d': '3D Globe',
-    transitioning: 'Transitioning...',
-  }[mode];
+const MapToggle: React.FC<MapToggleProps> = ({
+  mode,
+  onToggle,
+  isTransitioning,
+}) => {
+  const isFlat = mode === "flat";
+  const isGlobe = mode === "globe";
 
   return (
-    <div
-      className="absolute top-3 right-3 z-50 flex flex-col items-center transition-opacity"
-      style={{ opacity: isTransitioning ? 0.7 : 1, cursor: isTransitioning ? 'wait' : 'default' }}
-    >
-      <div
-        className="flex gap-0.5 p-1 rounded-full border"
-        style={{
-          background: 'rgba(255,255,255,0.92)',
-          backdropFilter: 'blur(8px)',
-          borderColor: 'rgba(0,0,0,0.12)',
-        }}
-      >
-        <button onClick={onToggle} disabled={isTransitioning} className={getButtonClasses(isFlat)}>
-          <LayoutGrid size={14} />
+    <div className="fixed top-[88px] right-8 z-[100]">
+      <div className="relative flex p-1.5 bg-slate-900/40 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+        {/* Animated Background Highlight */}
+        <motion.div
+          animate={{ x: isFlat ? 0 : 88 }}
+          transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+          className="absolute inset-y-1.5 left-1.5 w-[88px] bg-indigo-500 rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.3)]"
+        />
+
+        <button
+          onClick={() => !isFlat && onToggle()}
+          disabled={isTransitioning}
+          className={`relative z-10 flex items-center justify-center gap-2.5 w-[88px] py-2 rounded-xl text-[11px] font-bold tracking-wider uppercase transition-colors duration-300 ${
+            isFlat ? "text-white" : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          <LayoutGrid size={14} className={isFlat ? "animate-pulse" : ""} />
           <span>Flat</span>
         </button>
-        <button onClick={onToggle} disabled={isTransitioning} className={getButtonClasses(isGlobe)}>
-          <Globe size={14} />
+
+        <button
+          onClick={() => !isGlobe && onToggle()}
+          disabled={isTransitioning}
+          className={`relative z-10 flex items-center justify-center gap-2.5 w-[88px] py-2 rounded-xl text-[11px] font-bold tracking-wider uppercase transition-colors duration-300 ${
+            isGlobe ? "text-white" : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          <Globe size={14} className={isGlobe ? "animate-spin-slow" : ""} />
           <span>Globe</span>
         </button>
       </div>
-      <span className="mt-1 text-[10px] text-black/40 font-medium">{modeText}</span>
+      
+      {/* Decorative Status Line */}
+      <div className="mt-3 flex items-center justify-end gap-3 px-2">
+        <div className="flex flex-col items-end">
+          <span className="text-[9px] font-black text-indigo-400/60 uppercase tracking-[0.2em] leading-none">
+            Projection
+          </span>
+          <span className="text-[11px] font-bold text-white uppercase tracking-wider mt-1">
+            {isFlat ? "Natural Earth I" : "Geocentric Spherical"}
+          </span>
+        </div>
+        <div className="w-[2px] h-6 bg-indigo-500/30 rounded-full" />
+      </div>
     </div>
   );
 };

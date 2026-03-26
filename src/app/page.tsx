@@ -1,136 +1,346 @@
-'use client'
-import React, { useState, useRef, useCallback, useEffect } from 'react'
-import { AnimatePresence } from 'framer-motion'
-import { gsap } from 'gsap'
-import Navbar from '../components/layout/Navbar'
-import Sidebar from '../components/layout/Sidebar'
-import ModuleTabs from '../components/layout/ModuleTabs'
-import HexMap from '../components/map/HexMap'
-import GlobeMap from '../components/map/GlobeMap'
-import MapToggle from '../components/map/MapToggle'
-import CountryHoverCard from '../components/map/CountryHoverCard'
-import CountryDetailPanel from '../components/map/CountryDetailPanel'
-import ChatbotButton from '../components/ui/ChatbotButton'
-import AccessibilityPanel from '../components/ui/AccessibilityPanel'
-import useCountryData from '../hooks/useCountryData'
-import { CountryProfile, ActiveModule, MapMode, HoverPosition } from '../types'
-import { MODULE_CONFIGS } from '../lib/api'
+"use client";
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  Suspense,
+  useRef,
+} from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import * as d3 from "d3";
+import Navbar from "../components/layout/Navbar";
+import Sidebar from "../components/layout/Sidebar";
+import ModuleTabs from "../components/layout/ModuleTabs";
+import HexMap from "../components/map/HexMap";
+import GlobeMap from "../components/map/GlobeMap";
+import MapToggle from "../components/map/MapToggle";
+import RelationsLayer from "../components/map/RelationsLayer";
+import CountryHoverCard from "../components/map/CountryHoverCard";
+import CountryDetailPanel from "../components/map/CountryDetailPanel";
+import ChatbotButton from "../components/ui/ChatbotButton";
+import AccessibilityPanel from "../components/ui/AccessibilityPanel";
+import DayNightBackground from "../components/ui/DayNightBackground";
+import StatsOverlay from "../components/ui/StatsOverlay";
+import useCountryData from "../hooks/useCountryData";
+import { CountryProfile, ActiveModule, MapMode, HoverPosition } from "../types";
+import { MODULE_CONFIGS } from "../lib/api";
+import MapSkeleton from "../components/map/MapSkeleton";
 
-const LoadingSkeleton: React.FC = () => (
-  <div className="w-full h-full flex items-center justify-center bg-gray-100">
-    <div className="text-center">
-      <div className="w-12 h-12 border-4 border-gray-300 border-t-gray-500 rounded-full animate-spin mx-auto"></div>
-      <p className="mt-4 text-sm font-medium text-gray-500">Loading intelligence data...</p>
-    </div>
-  </div>
-);
+import * as topojson from "topojson-client";
+import { normalizeCountryName } from "../lib/countryData";
 
 export default function Home() {
-  const [activeModule, setActiveModule] = useState<ActiveModule>('overview');
-  const [mapMode, setMapMode] = useState<MapMode>('flat');
+  const [activeModule, setActiveModule] = useState<ActiveModule>("overview");
+  const [mapMode, setMapMode] = useState<MapMode>("flat");
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [hoveredCountry, setHoveredCountry] = useState<string | null>(null);
-  const [hoverPosition, setHoverPosition] = useState<HoverPosition | null>(null);
-  const [selectedCountry, setSelectedCountry] = useState<CountryProfile | null>(null);
+  const [hoverPosition, setHoverPosition] = useState<HoverPosition | null>(
+    null,
+  );
+  const [selectedCountry, setSelectedCountry] = useState<CountryProfile | null>(
+    null,
+  );
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [isRelationsVisible, setIsRelationsVisible] = useState(true);
+  const [globeRelations, setGlobeRelations] = useState<any[]>([]);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [countryCentroids, setCountryCentroids] = useState<
+    Map<string, [number, number]>
+  >(new Map());
 
-  const flatMapRef = useRef<HTMLDivElement>(null);
-  const globeMapRef = useRef<HTMLDivElement>(null);
-
+  const mapContainerRef = useRef<HTMLDivElement>(null);
   const { profiles, profileMap, loading, getCountry } = useCountryData();
+
+  useEffect(() => {
+    // Load topojson once to get all centroids for relations
+    fetch("/data/countries-110m.json")
+      .then((res) => res.json())
+      .then((worldData) => {
+        const countries = topojson.feature(
+          worldData,
+          worldData.objects.countries as any,
+        );
+        const centroids = new Map<string, [number, number]>();
+        (countries as any).features.forEach((f: any) => {
+          const name = normalizeCountryName(f.properties.name);
+          if (name) {
+            const centroid = d3.geoCentroid(f);
+            centroids.set(name, centroid);
+          }
+        });
+        setCountryCentroids(centroids);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setDimensions({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        });
+      }
+    });
+    observer.observe(mapContainerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    import("../lib/api").then((api) => {
+      const load = async () => {
+        const moduleColor = MODULE_CONFIGS[activeModule]?.accent || "#4f46e5";
+
+        if (activeModule === "overview") {
+          const data = await api.fetchInfluenceNetwork();
+          if (Array.isArray(data)) {
+            setGlobeRelations(
+              data.slice(0, 150).map((edge: any) => ({
+                fromCountry: edge.influencer,
+                toCountry: edge.influenced,
+                weight: edge.influence_score || 0.5,
+                moduleColor,
+              })),
+            );
+          }
+          return;
+        }
+
+        if (activeModule === "economy") {
+          const data = await api.fetchEconomyTopTradePairs();
+          if (Array.isArray(data)) {
+            setGlobeRelations(
+              data.slice(0, 150).map((edge: any) => ({
+                fromCountry: edge.country_a || edge.country1,
+                toCountry: edge.country_b || edge.country2,
+                weight: edge.normalized_weight || edge.trade_volume_normalized || 0.5,
+                moduleColor,
+              })),
+            );
+          }
+          return;
+        }
+
+        if (activeModule === "geopolitics") {
+          const data = await api.fetchGeopoliticsNetwork();
+          if (data && Array.isArray(data.edges)) {
+            setGlobeRelations(
+              data.edges.slice(0, 150).map((edge: any) => ({
+                fromCountry: edge.from,
+                toCountry: edge.to,
+                weight: edge.weight || 0.5,
+                moduleColor,
+              })),
+            );
+          }
+          return;
+        }
+
+        if (activeModule === "defence") {
+          const data = await api.fetchInfluenceNetwork(); // Fallback to influence for now
+          if (Array.isArray(data)) {
+            setGlobeRelations(
+              data.slice(0, 150).map((edge: any) => ({
+                fromCountry: edge.influencer,
+                toCountry: edge.influenced,
+                weight: edge.influence_score || 0.5,
+                moduleColor,
+              })),
+            );
+          }
+          return;
+        }
+
+        if (activeModule === "climate") {
+          const data = await api.fetchClimateGlobalConflictRisk();
+          if (data && Array.isArray(data)) {
+            setGlobeRelations(
+              data.slice(0, 150).map((edge: any) => ({
+                fromCountry: edge.source_country || edge.from,
+                toCountry: edge.at_risk_country || edge.to,
+                weight: edge.conflict_score || edge.risk_score || 0.5,
+                moduleColor,
+              })),
+            );
+          }
+          return;
+        }
+
+        setGlobeRelations([]);
+      };
+
+      load();
+    });
+  }, [activeModule]);
 
   const handleToggleMode = useCallback(() => {
     if (isTransitioning) return;
-    setIsTransitioning(true);
-    const duration = 0.4;
-    if (mapMode === 'flat') {
-      gsap.to(flatMapRef.current, { opacity: 0, scale: 0.96, duration: duration / 2, ease: 'power2.in' });
-      gsap.to(globeMapRef.current, {
-        opacity: 1, scale: 1, duration: duration / 2, ease: 'power2.out', delay: duration / 2.5,
-        onComplete: () => { setMapMode('globe'); setIsTransitioning(false); }
-      });
-    } else {
-      gsap.to(globeMapRef.current, { opacity: 0, scale: 0.96, duration: duration / 2, ease: 'power2.in' });
-      gsap.to(flatMapRef.current, {
-        opacity: 1, scale: 1, duration: duration / 2, ease: 'power2.out', delay: duration / 2.5,
-        onComplete: () => { setMapMode('flat'); setIsTransitioning(false); }
-      });
-    }
-  }, [mapMode, isTransitioning]);
+    setMapMode((prev) => (prev === "flat" ? "globe" : "flat"));
+  }, [isTransitioning]);
 
-  const handleCountryHover = useCallback((name: string | null, pos: HoverPosition | null) => {
-    setHoveredCountry(name);
-    setHoverPosition(pos);
+  const handleCountryHover = useCallback(
+    (name: string | null, pos: HoverPosition | null) => {
+      setHoveredCountry(name);
+      setHoverPosition(pos);
+    },
+    [],
+  );
+
+  const handleCountryClick = useCallback(
+    (name: string) => {
+      const profile = getCountry(name);
+      if (profile) {
+        setSelectedCountry(profile);
+        setIsPanelOpen(true);
+        setIsDetailOpen(false);
+      }
+    },
+    [getCountry],
+  );
+
+  const handleOpenDetail = useCallback(() => {
+    setIsDetailOpen(true);
+    setIsPanelOpen(false);
   }, []);
 
-  const handleCountryClick = useCallback((name: string) => {
-    const profile = getCountry(name);
-    if (profile) {
-      setSelectedCountry(profile);
-      setIsPanelOpen(true);
-    }
-  }, [getCountry]);
-
-  useEffect(() => {
-    document.body.style.backgroundColor = MODULE_CONFIGS[activeModule]?.bgTint || '#ffffff';
-  }, [activeModule]);
+  // Removed: document.body.style.backgroundColor handled by DayNightBackground
+  // useEffect(() => {
+  //   document.body.style.backgroundColor = MODULE_CONFIGS[activeModule]?.bgTint || '#ffffff';
+  // }, [activeModule]);
 
   const hoveredProfile = hoveredCountry ? getCountry(hoveredCountry) : null;
 
   return (
-    <main className="w-full h-screen overflow-hidden transition-colors duration-300">
+    <main className="relative w-full h-screen overflow-hidden transition-colors duration-300">
+      <DayNightBackground />
       <Navbar activeModule={activeModule} onModuleChange={setActiveModule} />
       <Sidebar activeModule={activeModule} />
 
-      <section className="absolute top-0 left-0 w-full h-full pt-[52px] pl-[52px]">
-        <div ref={flatMapRef} className="w-full h-full" style={{ opacity: mapMode === 'flat' ? 1 : 0 }}>
-          {loading ? (
-            <LoadingSkeleton />
-          ) : (
-            <HexMap
-              profiles={profiles}
-              profileMap={profileMap}
-              activeModule={activeModule}
-              onCountryHover={handleCountryHover}
-              onCountryClick={handleCountryClick}
-            />
-          )}
-        </div>
+      {/* Unified Relations Toggle */}
+      <div className="fixed top-[140px] right-8 z-[100] pointer-events-auto">
+        <button
+          onClick={() => setIsRelationsVisible(!isRelationsVisible)}
+          className={`flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all duration-300 shadow-2xl backdrop-blur-xl ${
+            isRelationsVisible
+              ? "bg-indigo-500/20 border-indigo-500/50 text-white"
+              : "bg-slate-900/40 border-white/10 text-slate-400"
+          }`}
+        >
+          <div
+            className={`w-2 h-2 rounded-full ${isRelationsVisible ? "bg-indigo-400 animate-pulse" : "bg-slate-600"}`}
+          />
+          <span className="text-[11px] font-bold tracking-wider uppercase">
+            Relations {isRelationsVisible ? "Online" : "Offline"}
+          </span>
+        </button>
+      </div>
 
-        <div ref={globeMapRef} className="absolute top-0 left-0 w-full h-full pointer-events-none" style={{ opacity: mapMode !== 'flat' ? 1 : 0, scale: mapMode === 'flat' ? 0.96 : 1 }}>
-            <GlobeMap
+      <section
+        ref={mapContainerRef}
+        className="absolute top-0 left-0 w-full h-full pt-[64px] pl-[72px]"
+      >
+        <Suspense fallback={<MapSkeleton />}>
+          <div className="relative w-full h-full">
+            {/* HexMap always mounted for smooth transition, opacity/pointerEvents control toggle */}
+            <motion.div
+              style={{
+                opacity: mapMode === "flat" ? 1 : 0,
+                pointerEvents: mapMode === "flat" ? "auto" : "none",
+              }}
+              className="absolute inset-0 w-full h-full"
+            >
+              <HexMap
+                profiles={profiles}
+                profileMap={profileMap}
+                activeModule={activeModule}
+                onCountryHover={handleCountryHover}
+                onCountryClick={handleCountryClick}
+              />
+              {/* RelationsLayer as sibling to HexMap */}
+              <RelationsLayer
+                activeModule={activeModule}
+                profileMap={profileMap}
+                isVisible={isRelationsVisible}
+                onToggle={() => setIsRelationsVisible(!isRelationsVisible)}
+                dimensions={dimensions}
+                relations={globeRelations}
+                countryCoords={countryCentroids}
+              />
+            </motion.div>
+
+            {/* GlobeMap always mounted */}
+            <motion.div
+              style={{
+                opacity: mapMode !== "flat" ? 1 : 0,
+                pointerEvents: mapMode !== "flat" ? "auto" : "none",
+              }}
+              className="absolute inset-0 w-full h-full"
+            >
+              <GlobeMap
                 profileMap={profileMap}
                 activeModule={activeModule}
                 onCountryHover={(name) => handleCountryHover(name, null)}
                 onCountryClick={handleCountryClick}
-                visible={mapMode !== 'flat'}
-            />
-        </div>
-
-        <MapToggle mode={mapMode} onToggle={handleToggleMode} isTransitioning={isTransitioning} />
+                showRelations={isRelationsVisible}
+                relations={globeRelations}
+                visible={mapMode !== "flat"}
+                countryCoords={countryCentroids}
+              />
+            </motion.div>
+          </div>
+        </Suspense>
       </section>
 
+      <MapToggle
+        mode={mapMode}
+        onToggle={handleToggleMode}
+        isTransitioning={isTransitioning}
+      />
+
       <AnimatePresence>
-        {hoveredCountry && hoverPosition && !isPanelOpen && hoveredProfile && (
+        {isPanelOpen && selectedCountry && (
           <CountryHoverCard
-            country={hoveredCountry}
-            profile={hoveredProfile}
-            position={hoverPosition}
+            country={selectedCountry.country}
+            profile={selectedCountry}
+            activeModule={activeModule}
+            onClose={() => setIsPanelOpen(false)}
+            onOpenDetail={handleOpenDetail}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isDetailOpen && selectedCountry && (
+          <CountryDetailPanel
+            country={selectedCountry.country}
+            profile={selectedCountry}
+            onClose={() => setIsDetailOpen(false)}
             activeModule={activeModule}
           />
         )}
       </AnimatePresence>
 
-      <CountryDetailPanel
-        country={selectedCountry?.country || null}
-        profile={selectedCountry}
-        onClose={() => setIsPanelOpen(false)}
-        activeModule={activeModule}
-      />
+      <div
+        className={`transition-opacity duration-300 ${activeModule === "overview" ? "opacity-60 grayscale-[0.3]" : "opacity-100"}`}
+      >
+        <ModuleTabs
+          activeModule={activeModule}
+          onModuleChange={setActiveModule}
+        />
+      </div>
 
-      <ModuleTabs activeModule={activeModule} onModuleChange={setActiveModule} />
-      <ChatbotButton activeModule={activeModule} selectedCountry={selectedCountry} />
+      <ChatbotButton
+        activeModule={activeModule}
+        selectedCountry={selectedCountry}
+      />
       <AccessibilityPanel />
+
+      <StatsOverlay
+        activeModule={activeModule}
+        profileMap={profileMap}
+        isVisible={!isPanelOpen && !isDetailOpen}
+      />
     </main>
   );
 }

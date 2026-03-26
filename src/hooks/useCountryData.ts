@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { fetchAllProfiles } from '../lib/api'
 import { CountryProfile } from '../types'
 
@@ -35,7 +35,7 @@ const useCountryData = () => {
     loadData()
   }, [])
 
-  const getCountry = (name: string): CountryProfile | undefined => {
+  const getCountry = useCallback((name: string): CountryProfile | undefined => {
     if (profileMap.has(name)) {
       return profileMap.get(name)
     }
@@ -45,9 +45,11 @@ const useCountryData = () => {
       }
     }
     return undefined
-  }
+  }, [profileMap]);
 
-  return { profiles, profileMap, loading, error, getCountry }
+  return useMemo(() => ({ 
+    profiles, profileMap, loading, error, getCountry 
+  }), [profiles, profileMap, loading, error, getCountry]);
 }
 
 export default useCountryData
