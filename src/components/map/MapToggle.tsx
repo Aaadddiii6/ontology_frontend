@@ -27,27 +27,31 @@ const MapToggle: React.FC<MapToggleProps> = ({
           className="absolute inset-y-1.5 left-1.5 w-[88px] bg-indigo-500 rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.3)]"
         />
 
-        <button
+        <motion.button
           onClick={() => !isFlat && onToggle()}
           disabled={isTransitioning}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           className={`relative z-10 flex items-center justify-center gap-2.5 w-[88px] py-2 rounded-xl text-[11px] font-bold tracking-wider uppercase transition-colors duration-300 ${
             isFlat ? "text-white" : "text-slate-400 hover:text-slate-200"
           }`}
         >
           <LayoutGrid size={14} className={isFlat ? "animate-pulse" : ""} />
           <span>Flat</span>
-        </button>
+        </motion.button>
 
-        <button
+        <motion.button
           onClick={() => !isGlobe && onToggle()}
           disabled={isTransitioning}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           className={`relative z-10 flex items-center justify-center gap-2.5 w-[88px] py-2 rounded-xl text-[11px] font-bold tracking-wider uppercase transition-colors duration-300 ${
             isGlobe ? "text-white" : "text-slate-400 hover:text-slate-200"
           }`}
         >
           <Globe size={14} className={isGlobe ? "animate-spin-slow" : ""} />
           <span>Globe</span>
-        </button>
+        </motion.button>
       </div>
       
       {/* Decorative Status Line */}

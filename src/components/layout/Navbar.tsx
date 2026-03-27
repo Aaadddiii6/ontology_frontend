@@ -73,6 +73,15 @@ const Navbar: React.FC<NavbarProps> = ({ activeModule, onModuleChange }) => {
           </div>
         </div>
 
+        <div className="flex items-center gap-2 border-r border-white/10 pr-4">
+          <button
+            onClick={() => window.dispatchEvent(new Event('toggleDayNight'))}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/10 text-white text-[10px] font-bold tracking-wider uppercase bg-slate-900/40 hover:bg-slate-900/60 transition-all cursor-pointer"
+          >
+            <span className="relative z-10 day-mode:text-slate-900">☀ / ☽</span>
+          </button>
+        </div>
+
         <div className="flex items-center gap-4">
           <div className="relative p-2 text-slate-400 hover:text-white transition-colors cursor-pointer">
             <Bell size={20} />

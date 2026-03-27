@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useCallback, useMemo } from "react";
+"use client";
+import React, { useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
 import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { CountryProfile, ActiveModule, RelationEdge } from "../../types";
-import { normalizeCountryName, getModuleColor } from "../../lib/countryData";
+import { normalizeCountryName, getModuleColor, COUNTRY_COORDS } from "../../lib/countryData";
 
 interface GlobeMapProps {
   profileMap: Map<string, CountryProfile>;
@@ -14,61 +15,17 @@ interface GlobeMapProps {
   showRelations?: boolean;
   relations?: RelationEdge[];
   countryCoords?: Map<string, [number, number]>;
+  simulationResults?: Record<string, "critical" | "high" | "medium" | "low">;
 }
 
-const TOP_30_COUNTRIES_GEO: Record<string, [number, number]> = {
-  "United States": [-95.7, 37.1],
-  "Russian Federation": [105.3, 61.5],
-  China: [104.2, 35.9],
-  "United Kingdom": [-3.4, 55.4],
-  France: [2.2, 46.2],
-  Germany: [10.5, 51.2],
-  India: [79.0, 20.6],
-  Pakistan: [69.3, 30.4],
-  Brazil: [-51.9, -14.2],
-  "Saudi Arabia": [45.1, 23.9],
-  Israel: [34.9, 31.0],
-  "Iran, Islamic Republic of": [53.7, 32.4],
-  Ukraine: [31.2, 48.4],
-  Japan: [138.3, 36.2],
-  "Korea, Republic of": [127.8, 35.9],
-  Turkey: [35.2, 39.0],
-  Egypt: [30.8, 26.8],
-  Nigeria: [8.7, 9.1],
-  Indonesia: [113.9, -0.8],
-  Australia: [133.8, -25.3],
-  Canada: [-106.3, 56.1],
-  Mexico: [-102.6, 23.6],
-  Poland: [19.1, 51.9],
-  Italy: [12.6, 41.9],
-  Spain: [-3.7, 40.5],
-  Netherlands: [5.3, 52.1],
-  Belgium: [4.5, 50.5],
-  Sweden: [18.6, 60.1],
-  Norway: [8.5, 60.5],
-  Finland: [25.7, 61.9],
-};
-
-const geoCoordsTo3d = (lon: number, lat: number, radius: number) => {
+const geoCoordsTo3d = (lon: number, lat: number, radius: number): THREE.Vector3 => {
   const phi = (90 - lat) * (Math.PI / 180);
   const theta = (lon + 180) * (Math.PI / 180);
-  const x = -(radius * Math.sin(phi) * Math.cos(theta));
-  const y = radius * Math.cos(phi);
-  const z = radius * Math.sin(phi) * Math.sin(theta);
-  return new THREE.Vector3(x, y, z);
-};
-
-const createArcPath = (
-  start: THREE.Vector3,
-  end: THREE.Vector3,
-  radius: number,
-) => {
-  const mid = start.clone().lerp(end, 0.5);
-  const midLen = mid.length();
-  mid.normalize().multiplyScalar(midLen + radius * 0.2); // Elevate the midpoint
-
-  const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-  return curve;
+  return new THREE.Vector3(
+    -(radius * Math.sin(phi) * Math.cos(theta)),
+    radius * Math.cos(phi),
+    radius * Math.sin(phi) * Math.sin(theta),
+  );
 };
 
 const GlobeMap: React.FC<GlobeMapProps> = ({
@@ -80,482 +37,420 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
   showRelations = true,
   relations = [],
   countryCoords,
+  simulationResults,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const isDragging = useRef(false);
-  const mouseDownTime = useRef(0);
-  const mouseDownPos = useRef({ x: 0, y: 0 });
-  const previousMouse = useRef({ x: 0, y: 0 });
-  const globeGroup = useRef<THREE.Group>(new THREE.Group());
-  const lastHovered = useRef<string | null>(null);
-  const countryMeshesRef = useRef<THREE.Group>(new THREE.Group());
-  const relationsGroup = useRef<THREE.Group>(new THREE.Group());
-  const circlesGroup = useRef<THREE.Group>(new THREE.Group());
-  const lastRaycastTime = useRef(0);
-  const countryPosRef = useRef<Map<string, THREE.Vector3>>(new Map());
-  const visibleRef = useRef(visible);
 
-  useEffect(() => {
-    visibleRef.current = visible;
-  }, [visible]);
+  // All mutable state lives in refs so callbacks never go stale
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const globeGroupRef = useRef<THREE.Group>(new THREE.Group());
+  const countryMeshesRef = useRef<THREE.Group>(new THREE.Group());
+  const relationsGroupRef = useRef<THREE.Group>(new THREE.Group());
+  const animFrameRef = useRef<number>(0);
+  const isDragging = useRef(false);
+  const prevMouse = useRef({ x: 0, y: 0 });
+  const mouseDownPos = useRef({ x: 0, y: 0 });
+  const mouseDownTime = useRef(0);
+  const lastHovered = useRef<string | null>(null);
+  const lastRaycast = useRef(0);
+  const visibleRef = useRef(visible);
+  const worldLoadedRef = useRef(false);
+
+  useEffect(() => { visibleRef.current = visible; }, [visible]);
+
+  // ── Helpers ───────────────────────────────────────────────
+  const getGeoCoords = useCallback(
+    (name: string): [number, number] | null => {
+      // 1. Try the topojson-derived centroid map (most accurate)
+      if (countryCoords?.has(name)) return countryCoords.get(name)!;
+      // 2. Try normalised name in centroid map
+      const norm = normalizeCountryName(name);
+      if (norm && countryCoords?.has(norm)) return countryCoords.get(norm)!;
+      // 3. Fallback to static coords table
+      if (COUNTRY_COORDS[name]) return COUNTRY_COORDS[name];
+      if (norm && COUNTRY_COORDS[norm!]) return COUNTRY_COORDS[norm!];
+      return null;
+    },
+    [countryCoords],
+  );
 
   const getOverviewColor = useCallback(
     (apiName: string | null) => {
-      if (!apiName) return "#8ad0f0"; // Not in database/no name
-      const profile = profileMap.get(apiName);
-      if (!profile) return "#8ad0f0"; // Not in database
-      if (profile.nuclear === "confirmed") return "#0f52ba";
-      return "#6694f6"; // Default parchment tan
+      if (!apiName) return "#8ad0f0";
+      const p = profileMap.get(apiName);
+      if (!p) return "#8ad0f0";
+      if (p.nuclear === "confirmed") return "#0f52ba";
+      return "#6694f6";
     },
     [profileMap],
   );
 
-  const updateCountryColors = useCallback(() => {
-    countryMeshesRef.current.children.forEach((obj) => {
-      if (obj.userData.isCountryMesh) {
-        const countryName = obj.userData.countryName;
-        const profile = profileMap.get(countryName);
-        let color: string;
-        if (activeModule === "overview") {
-          color = getOverviewColor(countryName);
-        } else {
-          color = getModuleColor(profile, activeModule);
-        }
+  const colorForCountry = useCallback(
+    (apiName: string | null) => {
+      const p = apiName ? profileMap.get(apiName) : undefined;
+      return activeModule === "overview"
+        ? getOverviewColor(apiName)
+        : getModuleColor(p, activeModule);
+    },
+    [activeModule, profileMap, getOverviewColor],
+  );
 
-        if (
-          obj instanceof THREE.Mesh &&
-          obj.material instanceof THREE.MeshStandardMaterial
-        ) {
-          const baseColor = color.substring(0, 7);
-          obj.material.color.set(baseColor);
-          obj.material.emissive.set(baseColor);
-          obj.material.emissiveIntensity = 0.2;
-
-          if (color.length === 9) {
-            obj.material.transparent = true;
-            obj.material.opacity = parseInt(color.substring(7, 9), 16) / 255;
-          } else {
-            obj.material.transparent = false;
-            obj.material.opacity = 1;
-          }
-        } else if (
-          obj instanceof THREE.Line &&
-          obj.material instanceof THREE.LineBasicMaterial
-        ) {
-          // Lines don't have emissive, just set base color if we ever want to color borders
-          // For now we keep them white but update opacity if needed
-          obj.userData.baseColor = color;
-        }
-      }
-    });
-  }, [activeModule, profileMap, getOverviewColor]);
-
-  const updateCirclesAndRelations = useCallback(() => {
-    circlesGroup.current.clear();
-    relationsGroup.current.clear();
-
-    if (!visible) return;
-
-    const moduleAccentRaw =
-      activeModule === "overview"
-        ? "#c4a882"
-        : getModuleColor(null, activeModule);
-    const moduleAccentColor = moduleAccentRaw.substring(0, 7);
-
-    const getGeoCoords = (name: string): [number, number] | null => {
-      if (countryCoords && countryCoords.has(name))
-        return countryCoords.get(name)!;
-      const normalized = normalizeCountryName(name);
-      if (normalized && countryCoords && countryCoords.has(normalized))
-        return countryCoords.get(normalized)!;
-      return (
-        TOP_30_COUNTRIES_GEO[name] ||
-        TOP_30_COUNTRIES_GEO[normalized || ""] ||
-        null
-      );
-    };
-
-    // Country Circles for all countries in profileMap
-    profileMap.forEach((profile, countryName) => {
-      const geo = getGeoCoords(countryName);
-      if (geo) {
-        const pos = geoCoordsTo3d(geo[0], geo[1], 101.5);
-        const size = 0.8 + (profile.defense_composite || 0) * 2;
-        const geometry = new THREE.SphereGeometry(size, 8, 8);
-        const material = new THREE.MeshBasicMaterial({
-          color: moduleAccentColor,
-          transparent: true,
-          opacity: 0.8,
-        });
-        const sphere = new THREE.Mesh(geometry, material);
-        sphere.position.copy(pos);
-        circlesGroup.current.add(sphere);
-      }
-    });
-
-    // 3D Relations
-    if (showRelations && relations && relations.length > 0) {
-      relations.forEach((rel) => {
-        const startCoords = getGeoCoords(rel.fromCountry);
-        const endCoords = getGeoCoords(rel.toCountry);
-
-        if (startCoords && endCoords) {
-          const start = geoCoordsTo3d(startCoords[0], startCoords[1], 100.5);
-          const end = geoCoordsTo3d(endCoords[0], endCoords[1], 100.5);
-
-          const mid = start
-            .clone()
-            .lerp(end, 0.5)
-            .normalize()
-            .multiplyScalar(115);
-          const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-
-          const geometry = new THREE.TubeGeometry(curve, 20, 0.2, 4, false);
-          const material = new THREE.MeshBasicMaterial({
-            color: (rel.moduleColor || "#ffffff").substring(0, 7),
-            transparent: true,
-            opacity: Math.min(rel.weight * 0.7, 0.8),
-          });
-          const tube = new THREE.Mesh(geometry, material);
-          tube.userData.curve = curve;
-          tube.userData.offset = Math.random(); // Start at random point
-          relationsGroup.current.add(tube);
-        }
-      });
-    }
-  }, [
-    visible,
-    activeModule,
-    profileMap,
-    showRelations,
-    relations,
-    countryCoords,
-  ]);
-
+  // ── Scene setup (runs once) ────────────────────────────────
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    let animationFrameId: number;
+    // ── Renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0x000000, 0);
+    container.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
 
-    const scene = new THREE.Scene();
+    // ── Camera
     const camera = new THREE.PerspectiveCamera(
       40,
       container.clientWidth / container.clientHeight,
       0.1,
       2000,
     );
-    camera.position.z = 350;
+    camera.position.z = 340;
+    cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-    renderer.setClearColor(0x000000, 0);
-    container.appendChild(renderer.domElement);
+    // ── Scene
+    const scene = new THREE.Scene();
+    sceneRef.current = scene;
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
-    scene.add(ambientLight);
+    // ── Lights
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    sun.position.set(400, 300, 400);
+    scene.add(sun);
+    const fill = new THREE.PointLight(0xaaccff, 0.8, 1000);
+    fill.position.set(-200, -100, 200);
+    scene.add(fill);
 
-    const mainLight = new THREE.DirectionalLight(0xffffff, 1.8);
-    mainLight.position.set(500, 300, 500);
-    scene.add(mainLight);
-
-    const fillLight = new THREE.PointLight(0xffffff, 1, 1000);
-    fillLight.position.set(-200, -100, 200);
-    scene.add(fillLight);
-
+    // ── Globe base
     const globeBase = new THREE.Mesh(
-      new THREE.SphereGeometry(100, 48, 48),
+      new THREE.SphereGeometry(100, 64, 64),
       new THREE.MeshStandardMaterial({
-        color: 0x9ab8f4, // Updated globe color
-        roughness: 0.2,
-        metalness: 0.7,
+        color: 0x0d1b2e,
+        roughness: 0.4,
+        metalness: 0.6,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.97,
       }),
     );
-    globeGroup.current.add(globeBase);
+    globeGroupRef.current.add(globeBase);
 
-    // Inner glow - adjusted for lighter theme
-    const innerGlow = new THREE.Mesh(
-      new THREE.SphereGeometry(101, 48, 48),
+    // ── Subtle ocean shimmer
+    const ocean = new THREE.Mesh(
+      new THREE.SphereGeometry(99.5, 64, 64),
       new THREE.MeshStandardMaterial({
-        color: 0x6366f1,
+        color: 0x1a3a5c,
+        roughness: 0.1,
+        metalness: 0.9,
         transparent: true,
-        opacity: 0.1,
-        side: THREE.FrontSide,
+        opacity: 0.6,
       }),
     );
-    globeGroup.current.add(innerGlow);
+    globeGroupRef.current.add(ocean);
 
-    const atmosphereOuter = new THREE.Mesh(
-      new THREE.SphereGeometry(135, 48, 48),
+    // ── Atmosphere glow
+    const atmo = new THREE.Mesh(
+      new THREE.SphereGeometry(115, 48, 48),
       new THREE.MeshBasicMaterial({
-        color: 0x4f46e5,
+        color: 0x4f6ef7,
         transparent: true,
-        opacity: 0.05,
+        opacity: 0.06,
         side: THREE.BackSide,
       }),
     );
-    globeGroup.current.add(atmosphereOuter);
+    globeGroupRef.current.add(atmo);
 
-    const gridGeometry = new THREE.SphereGeometry(100.1, 40, 40);
-    const gridMaterial = new THREE.MeshBasicMaterial({
-      color: 0x333333,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.1,
-    });
-    const grid = new THREE.Mesh(gridGeometry, gridMaterial);
-    globeGroup.current.add(grid);
+    // ── Grid lines
+    const grid = new THREE.Mesh(
+      new THREE.SphereGeometry(100.3, 36, 36),
+      new THREE.MeshBasicMaterial({
+        color: 0x334466,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.08,
+      }),
+    );
+    globeGroupRef.current.add(grid);
 
-    globeGroup.current.add(countryMeshesRef.current);
-    globeGroup.current.add(relationsGroup.current);
-    globeGroup.current.add(circlesGroup.current);
-    scene.add(globeGroup.current);
+    // ── Add groups to globe
+    globeGroupRef.current.add(countryMeshesRef.current);
+    globeGroupRef.current.add(relationsGroupRef.current);
+    scene.add(globeGroupRef.current);
 
+    // ── Load world topology ──────────────────────────────────
     d3.json<any>("/data/countries-110m.json").then((world) => {
-      if (!world) return;
+      if (!world || !sceneRef.current) return;
+      worldLoadedRef.current = true;
+
       const countries = topojson.feature(world, world.objects.countries as any);
 
       (countries as any).features.forEach((feature: any) => {
-        const countryName = feature.properties.name;
-        const apiName = normalizeCountryName(countryName);
-        if (!apiName) return;
-
-        const centroid = d3.geoCentroid(feature);
-        const pos = geoCoordsTo3d(centroid[0], centroid[1], 100.5);
-        countryPosRef.current.set(apiName, pos);
+        const rawName: string = feature.properties?.name ?? "";
+        const apiName = normalizeCountryName(rawName) ?? rawName;
 
         const profile = profileMap.get(apiName);
-        let color;
-        if (activeModule === "overview") {
-          color = getOverviewColor(apiName);
-        } else {
-          color = getModuleColor(profile, activeModule);
-        }
+        const color = colorForCountry(apiName);
+        const baseHex = color.substring(0, 7);
 
-        if (
-          feature.geometry.type === "Polygon" ||
-          feature.geometry.type === "MultiPolygon"
-        ) {
-          const polygons =
-            feature.geometry.type === "Polygon"
-              ? [feature.geometry.coordinates]
-              : feature.geometry.coordinates;
+        const polys: number[][][][] =
+          feature.geometry?.type === "Polygon"
+            ? [feature.geometry.coordinates]
+            : feature.geometry?.type === "MultiPolygon"
+              ? feature.geometry.coordinates
+              : [];
 
-          polygons.forEach((coords: any) => {
-            const points = coords[0].map((coord: any) =>
-              geoCoordsTo3d(coord[0], coord[1], 100.2),
-            );
+        polys.forEach((poly) => {
+          // Country fill: project each ring as a shape
+          const ring = poly[0];
+          if (!ring || ring.length < 3) return;
 
-            const geometry = new THREE.BufferGeometry().setFromPoints(points);
-            const line = new THREE.Line(
-              geometry,
-              new THREE.LineBasicMaterial({
-                color: 0xffffff, // Defined white borders
-                opacity: 0.8, // Increased opacity for definition
-                transparent: true,
-                linewidth: 1,
-              }),
-            );
-            line.userData.countryName = apiName;
-            line.userData.isCountryMesh = true;
-            line.userData.baseColor = color;
-            line.userData.isOverview = activeModule === "overview";
-            countryMeshesRef.current.add(line);
+          // Outline
+          const pts = ring.map(([lon, lat]: number[]) =>
+            geoCoordsTo3d(lon, lat, 100.3),
+          );
+          const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+          const line = new THREE.Line(
+            lineGeo,
+            new THREE.LineBasicMaterial({
+              color: 0xffffff,
+              transparent: true,
+              opacity: 0.5,
+            }),
+          );
+          line.userData = { apiName, isCountry: true };
+          countryMeshesRef.current.add(line);
+        });
 
-            // Only add dots if NOT in overview
-            if (activeModule !== "overview") {
-              const dotGeo = new THREE.SphereGeometry(0.8, 8, 8);
-              const baseColor = color.substring(0, 7);
-              const dotMat = new THREE.MeshStandardMaterial({
-                color: baseColor,
-                emissive: baseColor,
-                emissiveIntensity: 0.5,
-                transparent: true,
-                opacity:
-                  color.length === 9
-                    ? parseInt(color.substring(7, 9), 16) / 255
-                    : 0.9,
-              });
-              const centroid = d3.geoCentroid(feature);
-              const pos = geoCoordsTo3d(centroid[0], centroid[1], 101);
-              const dot = new THREE.Mesh(dotGeo, dotMat);
-              dot.position.copy(pos);
-              dot.userData.countryName = apiName;
-              dot.userData.isCountryMesh = true;
-              countryMeshesRef.current.add(dot);
-            }
-          });
+        // Dot at centroid (all modules)
+        const centroid = d3.geoCentroid(feature);
+        if (centroid && centroid[0] != null && centroid[1] != null) {
+          const pos = geoCoordsTo3d(centroid[0], centroid[1], 101.5);
+          const size = 1.2 + (profile?.defense_composite ?? 0) * 2.5;
+          const dot = new THREE.Mesh(
+            new THREE.SphereGeometry(Math.min(size, 3.5), 8, 8),
+            new THREE.MeshStandardMaterial({
+              color: baseHex,
+              emissive: baseHex,
+              emissiveIntensity: 0.5,
+              transparent: true,
+              opacity: 0.9,
+            }),
+          );
+          dot.position.copy(pos);
+          dot.userData = { apiName, isCountry: true, isDot: true, baseScale: 1 };
+          countryMeshesRef.current.add(dot);
         }
       });
-      updateCirclesAndRelations();
     });
 
-    const raycaster = new THREE.Raycaster();
-    raycaster.params.Line.threshold = 3; // Make lines easier to click
-    const mouse = new THREE.Vector2();
-
-    const onMouseMove = (event: MouseEvent) => {
-      const rect = container.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      const isOverContainer =
-        x >= 0 &&
-        y >= 0 &&
-        x <= container.clientWidth &&
-        y <= container.clientHeight;
-
-      if (isDragging.current) {
-        const deltaX = event.clientX - previousMouse.current.x;
-        const deltaY = event.clientY - previousMouse.current.y;
-        globeGroup.current.rotation.y += deltaX * 0.005;
-        globeGroup.current.rotation.x += deltaY * 0.003;
-        globeGroup.current.rotation.x = Math.max(
-          -1.2,
-          Math.min(1.2, globeGroup.current.rotation.x),
-        );
-        previousMouse.current = { x: event.clientX, y: event.clientY };
-      } else if (isOverContainer && visibleRef.current) {
-        // Throttled raycasting
-        const now = Date.now();
-        if (now - lastRaycastTime.current < 50) return;
-        lastRaycastTime.current = now;
-
-        mouse.x = (x / container.clientWidth) * 2 - 1;
-        mouse.y = -(y / container.clientHeight) * 2 + 1;
-
-        raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects(
-          countryMeshesRef.current.children,
-        );
-
-        if (intersects.length > 0) {
-          const name = intersects[0].object.userData.countryName;
-          if (lastHovered.current !== name) {
-            onCountryHover(name);
-            lastHovered.current = name;
-
-            countryMeshesRef.current.children.forEach((obj) => {
-              if (obj.userData.countryName === name) {
-                if (obj instanceof THREE.Mesh) {
-                  obj.scale.set(2, 2, 2);
-                  if (obj.material instanceof THREE.MeshStandardMaterial) {
-                    obj.material.emissiveIntensity = 1;
-                  }
-                }
-                if (obj instanceof THREE.Line) {
-                  (obj.material as THREE.LineBasicMaterial).opacity = 1;
-                  (obj.material as THREE.LineBasicMaterial).color.set(0x6366f1);
-                }
-              } else {
-                if (obj instanceof THREE.Mesh) {
-                  obj.scale.set(1, 1, 1);
-                  if (obj.material instanceof THREE.MeshStandardMaterial) {
-                    obj.material.emissiveIntensity = 0.2;
-                  }
-                }
-                if (obj instanceof THREE.Line) {
-                  (obj.material as THREE.LineBasicMaterial).opacity = 0.4;
-                  (obj.material as THREE.LineBasicMaterial).color.set(0xffffff);
-                }
-              }
-            });
-          }
-        } else if (lastHovered.current) {
-          onCountryHover(null);
-          lastHovered.current = null;
-          countryMeshesRef.current.children.forEach((obj) => {
-            if (obj instanceof THREE.Mesh) {
-              obj.scale.set(1, 1, 1);
-              if (obj.material instanceof THREE.MeshStandardMaterial) {
-                obj.material.emissiveIntensity = 0.2;
-              }
-            }
-            if (obj instanceof THREE.Line) {
-              (obj.material as THREE.LineBasicMaterial).opacity = 0.4;
-              (obj.material as THREE.LineBasicMaterial).color.set(0xffffff);
-            }
-          });
-        }
-      }
-    };
-
-    const onMouseDown = (event: MouseEvent) => {
-      isDragging.current = true;
-      mouseDownTime.current = Date.now();
-      mouseDownPos.current = { x: event.clientX, y: event.clientY };
-      previousMouse.current = { x: event.clientX, y: event.clientY };
-      if (containerRef.current) containerRef.current.style.cursor = "grabbing";
-    };
-
-    const onMouseUp = (event: MouseEvent) => {
-      isDragging.current = false;
-      if (containerRef.current) containerRef.current.style.cursor = "crosshair";
-
-      const moveX = Math.abs(event.clientX - mouseDownPos.current.x);
-      const moveY = Math.abs(event.clientY - mouseDownPos.current.y);
-      const timeElapsed = Date.now() - mouseDownTime.current;
-
-      // If it was a quick click and not a drag
-      if (moveX < 5 && moveY < 5 && timeElapsed < 250) {
-        if (lastHovered.current) {
-          onCountryClick(lastHovered.current);
-        }
-      }
-    };
-
-    container.addEventListener("mousedown", onMouseDown);
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp); // Listen on window for more reliable drag release
-
+    // ── Animate ──────────────────────────────────────────────
     const animate = () => {
-      animationFrameId = requestAnimationFrame(animate);
-
+      animFrameRef.current = requestAnimationFrame(animate);
       if (!visibleRef.current) return;
-
       if (!isDragging.current) {
-        globeGroup.current.rotation.y += 0.0005;
+        globeGroupRef.current.rotation.y += 0.0008;
       }
+      
+      const time = Date.now() * 0.005;
+      countryMeshesRef.current.children.forEach((obj) => {
+        if (obj.userData?.isDot && obj.userData?.severity) {
+          const mul = 1 + Math.sin(time + obj.id) * 0.4; // random offset by id
+          obj.scale.setScalar(obj.userData.baseScale * mul);
+        } else if (obj.userData?.isDot && obj.scale.x !== obj.userData.baseScale) {
+          obj.scale.setScalar(obj.userData.baseScale); // restore scale when severity removed
+        }
+      });
 
       renderer.render(scene, camera);
     };
     animate();
 
-    const handleResize = () => {
-      camera.aspect = container.clientWidth / container.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
+    // ── Resize ──────────────────────────────────────────────
+    const onResize = () => {
+      if (!container || !cameraRef.current || !rendererRef.current) return;
+      cameraRef.current.aspect = container.clientWidth / container.clientHeight;
+      cameraRef.current.updateProjectionMatrix();
+      rendererRef.current.setSize(container.clientWidth, container.clientHeight);
     };
-    const observer = new ResizeObserver(handleResize);
-    observer.observe(container);
+    const ro = new ResizeObserver(onResize);
+    ro.observe(container);
+
+    // ── Mouse events ─────────────────────────────────────────
+    const onDown = (e: MouseEvent) => {
+      isDragging.current = true;
+      mouseDownPos.current = { x: e.clientX, y: e.clientY };
+      prevMouse.current = { x: e.clientX, y: e.clientY };
+      mouseDownTime.current = Date.now();
+      container.style.cursor = "grabbing";
+    };
+
+    const onMove = (e: MouseEvent) => {
+      if (isDragging.current) {
+        const dx = e.clientX - prevMouse.current.x;
+        const dy = e.clientY - prevMouse.current.y;
+        globeGroupRef.current.rotation.y += dx * 0.005;
+        globeGroupRef.current.rotation.x = Math.max(
+          -1.2,
+          Math.min(1.2, globeGroupRef.current.rotation.x + dy * 0.003),
+        );
+        prevMouse.current = { x: e.clientX, y: e.clientY };
+        return;
+      }
+
+      // Raycasting for hover
+      if (!visibleRef.current) return;
+      const now = Date.now();
+      if (now - lastRaycast.current < 60) return;
+      lastRaycast.current = now;
+
+      const rect = container.getBoundingClientRect();
+      const mx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const my = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      if (!cameraRef.current) return;
+      const raycaster = new THREE.Raycaster();
+      raycaster.params.Line = { threshold: 2 };
+      raycaster.setFromCamera(new THREE.Vector2(mx, my), cameraRef.current);
+
+      const hits = raycaster.intersectObjects(countryMeshesRef.current.children, false);
+      const hit = hits.find((h) => h.object.userData?.isCountry);
+
+      if (hit) {
+        const name: string = hit.object.userData.apiName;
+        if (name !== lastHovered.current) {
+          lastHovered.current = name;
+          onCountryHover(name);
+          // Highlight
+          countryMeshesRef.current.children.forEach((obj) => {
+            const isThis = obj.userData.apiName === name;
+            if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+              obj.material.emissiveIntensity = isThis ? 1.2 : 0.4;
+              if (isThis) obj.scale.setScalar(1.3);
+              else obj.scale.setScalar(1);
+            }
+            if (obj instanceof THREE.Line && obj.material instanceof THREE.LineBasicMaterial) {
+              obj.material.opacity = isThis ? 1 : 0.3;
+              if (isThis) obj.material.color.set(0x6366f1);
+              else obj.material.color.set(0xffffff);
+            }
+          });
+        }
+      } else if (lastHovered.current) {
+        lastHovered.current = null;
+        onCountryHover(null);
+        countryMeshesRef.current.children.forEach((obj) => {
+          if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+            obj.material.emissiveIntensity = 0.4;
+            obj.scale.setScalar(1);
+          }
+          if (obj instanceof THREE.Line && obj.material instanceof THREE.LineBasicMaterial) {
+            obj.material.opacity = 0.4;
+            obj.material.color.set(0xffffff);
+          }
+        });
+      }
+    };
+
+    const onUp = (e: MouseEvent) => {
+      const moved =
+        Math.abs(e.clientX - mouseDownPos.current.x) < 6 &&
+        Math.abs(e.clientY - mouseDownPos.current.y) < 6;
+      const quick = Date.now() - mouseDownTime.current < 300;
+      if (moved && quick && lastHovered.current) {
+        onCountryClick(lastHovered.current);
+      }
+      isDragging.current = false;
+      container.style.cursor = "grab";
+    };
+
+    container.addEventListener("mousedown", onDown);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
-      observer.disconnect();
-      container.removeEventListener("mousedown", onMouseDown);
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+      cancelAnimationFrame(animFrameRef.current);
+      ro.disconnect();
+      container.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
       }
     };
-  }, [onCountryHover, onCountryClick]); // Removed activeModule to prevent scene recreation
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only once
 
+  // ── Update colors when module/profileMap/sim changes ───────────
   useEffect(() => {
-    updateCountryColors();
-    updateCirclesAndRelations();
-  }, [updateCountryColors, updateCirclesAndRelations]);
+    countryMeshesRef.current.children.forEach((obj) => {
+      if (!obj.userData?.isCountry) return;
+      const apiName: string = obj.userData.apiName;
+      let colorHex = colorForCountry(apiName);
+      if (colorHex && colorHex.length > 7) colorHex = colorHex.substring(0, 7);
+      
+      const severity = simulationResults ? simulationResults[apiName] : undefined;
+      if (severity === "critical") colorHex = "#ef4444";
+      else if (severity === "high") colorHex = "#f97316";
+      else if (severity === "medium") colorHex = "#f59e0b";
+      else if (severity === "low") colorHex = "#eab308";
+
+      if (obj.userData.isDot) obj.userData.severity = severity;
+
+      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+        obj.material.color.set(colorHex);
+        obj.material.emissive.set(colorHex);
+        // Boost glow if it's severe
+        obj.material.emissiveIntensity = severity ? 1.5 : (obj.userData.apiName === lastHovered.current ? 1.2 : 0.5);
+      }
+      if (obj instanceof THREE.Line && obj.material instanceof THREE.LineBasicMaterial) {
+        obj.material.color.set(severity ? colorHex : 0xffffff);
+        obj.material.opacity = severity ? 0.8 : 0.3;
+      }
+    });
+  }, [colorForCountry, simulationResults]);
+
+  // ── Update relations arcs ─────────────────────────────────
+  useEffect(() => {
+    relationsGroupRef.current.clear();
+    if (!showRelations || !relations.length) return;
+
+    relations.slice(0, 100).forEach((rel) => {
+      const sc = getGeoCoords(rel.fromCountry);
+      const ec = getGeoCoords(rel.toCountry);
+      if (!sc || !ec) return;
+
+      const start = geoCoordsTo3d(sc[0], sc[1], 101);
+      const end = geoCoordsTo3d(ec[0], ec[1], 101);
+      const mid = start.clone().lerp(end, 0.5).normalize().multiplyScalar(118);
+
+      const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+      const geo = new THREE.TubeGeometry(curve, 24, 0.25, 4, false);
+      const mat = new THREE.MeshBasicMaterial({
+        color: (rel.moduleColor ?? "#6366f1").substring(0, 7),
+        transparent: true,
+        opacity: Math.min(0.7, (rel.weight ?? 0.5) * 0.8),
+      });
+      relationsGroupRef.current.add(new THREE.Mesh(geo, mat));
+    });
+  }, [relations, showRelations, getGeoCoords]);
 
   return (
     <div
       ref={containerRef}
       className="relative w-full h-full"
-      style={{
-        cursor: isDragging.current ? "grabbing" : "grab",
-      }}
+      style={{ cursor: "grab" }}
     />
   );
 };

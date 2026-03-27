@@ -29,7 +29,8 @@ export type ActiveModule =
   | "defence"
   | "economy"
   | "geopolitics"
-  | "climate";
+  | "climate"
+  | "simulator";
 
 export interface RelationEdge {
   fromCountry: string;

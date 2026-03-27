@@ -12,6 +12,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip } from "recharts";
+import { AnimatedNumber } from "../ui/AnimatedNumber";
 import { CountryProfile, ActiveModule } from "../../types";
 import {
   fetchCompositeProfile,
@@ -39,8 +40,10 @@ const TabButton: React.FC<{
   onClick: () => void;
   accentColor: string;
 }> = ({ label, active, onClick, accentColor }) => (
-  <button
+  <motion.button
     onClick={onClick}
+    whileHover={{ scale: 1.05 }}
+    whileTap={{ scale: 0.95 }}
     className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all duration-200 ${
       active
         ? "border-current opacity-100"
@@ -49,7 +52,7 @@ const TabButton: React.FC<{
     style={{ color: active ? accentColor : "inherit" }}
   >
     {label}
-  </button>
+  </motion.button>
 );
 
 const Sparkline: React.FC<{ data: any[]; dataKey: string; color: string }> = ({
@@ -69,7 +72,6 @@ const Sparkline: React.FC<{ data: any[]; dataKey: string; color: string }> = ({
           isAnimationActive={false}
         />
         <YAxis hide domain={["auto", "auto"]} />
-        <Tooltip hide />
       </LineChart>
     </ResponsiveContainer>
   </div>
@@ -77,15 +79,15 @@ const Sparkline: React.FC<{ data: any[]; dataKey: string; color: string }> = ({
 
 const DetailStat: React.FC<{
   label: string;
-  value: string | number;
+  value: React.ReactNode;
   description?: string;
 }> = ({ label, value, description }) => (
-  <div className="py-3 border-b border-gray-100 last:border-0">
-    <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">
+  <div className="py-3 border-b border-gray-100 last:border-0 pl-3 border-l-2" style={{ borderLeftColor: 'rgba(99, 102, 241, 0.4)' }}>
+    <div className="text-[9px] font-black text-slate-400 uppercase tracking-[0.25em]">
       {label}
     </div>
-    <div className="text-sm font-bold text-gray-800 mt-0.5">
-      {value || (
+    <div className="text-sm font-semibold text-gray-800 mt-0.5 font-mono">
+      {value ? (typeof value === 'string' || typeof value === 'number' ? <AnimatedNumber value={value} /> : value) : (
         <span className="text-gray-300 italic">Data not available</span>
       )}
     </div>
@@ -188,25 +190,27 @@ const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
         initial={{ x: 340 }}
         animate={{ x: 0 }}
         exit={{ x: 340 }}
-        transition={{ type: "spring", stiffness: 400, damping: 40 }}
-        className="fixed right-0 top-0 bottom-0 w-[340px] bg-white z-[250] shadow-2xl flex flex-col"
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className="fixed right-0 top-0 bottom-0 w-[340px] bg-gradient-to-br from-slate-900/95 to-slate-800/90 backdrop-blur-2xl border-l border-white/8 z-[250] shadow-[0_8px_32px_rgba(0,0,0,0.4)] flex flex-col text-white"
       >
         {/* Header */}
-        <div className="p-6 pb-4 border-b border-gray-100 flex items-start justify-between">
+        <div className="p-6 pb-4 border-b border-white/10 flex items-start justify-between">
           <div>
-            <h2 className="text-2xl font-black text-slate-900 leading-tight">
+            <h2 className="text-2xl font-black text-white tracking-tight leading-tight">
               {country}
             </h2>
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+            <p className="text-[9px] font-black tracking-[0.25em] text-slate-400 uppercase mt-1">
               {profile.region || "Analysis Node"}
             </p>
           </div>
-          <button
+          <motion.button
             onClick={onClose}
-            className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400"
           >
             <X size={20} />
-          </button>
+          </motion.button>
         </div>
 
         {/* Tab Switcher */}
@@ -272,12 +276,14 @@ const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
                       />
                       <DetailStat
                         label="Event Count"
-                        value={data?.conflicts?.events || ""}
+                        value={data?.conflicts?.events ? <AnimatedNumber value={data.conflicts.events} /> : ""}
                       />
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
+                  <div className="text-center py-10 opacity-30">
+                Data stream unavailable
+              </div>        <div className="flex flex-wrap gap-2">
                     {profile.nuclear && (
                       <span className="px-3 py-1 bg-rose-50 border border-rose-100 rounded-lg text-[10px] font-black text-rose-600 uppercase">
                         Nuclear Capability

@@ -5,8 +5,11 @@ import {
   fetchCoverageStats,
   fetchGlobalRiskRanking,
   fetchEconomyInfluenceRanking,
-  fetchGraphSummary,
   fetchDefenseGlobalTotals,
+  fetchGeopoliticsNetwork,
+  fetchGeopoliticsCentralityRanking,
+  fetchEconomyTopTradePairs,
+  fetchEconomyTradeVulnerabilityRanking,
 } from "../../lib/api";
 
 interface StatsOverlayProps {
@@ -48,13 +51,13 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
   const refreshData = async () => {
     try {
       if (activeModule === "overview") {
-        const [coverage, riskRanking, graph] = await Promise.all([
+        const [coverage, riskRanking, tradePairs] = await Promise.all([
           fetchCoverageStats(),
           fetchGlobalRiskRanking(),
-          fetchGraphSummary(),
+          fetchEconomyTopTradePairs(),
         ]);
 
-        if (!coverage && !riskRanking && !graph) {
+        if (!coverage && !riskRanking && !tradePairs) {
           setIsOffline(true);
         } else {
           setIsOffline(false);
@@ -63,14 +66,12 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
         const total = coverage?.total_countries ?? profileMap.size ?? 261;
         const stability =
           total > 0 ? ((coverage?.has_global_risk ?? 0) / total) * 100 : 0;
-        const threats = Array.isArray(riskRanking)
-          ? riskRanking.filter((c: any) => (c.global_risk ?? 0) > 0.45).length
+        const riskArray = Array.isArray(riskRanking) ? riskRanking : riskRanking?.data;
+        const threats = Array.isArray(riskArray)
+          ? riskArray.filter((c: any) => (c.global_risk ?? 0) > 0.45).length
           : 0;
         const nodes = coverage?.has_influence ?? coverage?.has_global_risk ?? 0;
-        const totalRelations = graph?.relationships?.reduce(
-          (acc: number, r: any) => acc + (r?.cnt ?? 0),
-          0,
-        );
+        const totalPairs = (tradePairs || []).length;
 
         setStats([
           {
@@ -87,8 +88,8 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
             icon: "📊",
           },
           {
-            label: "Total Relations",
-            value: (totalRelations || 0).toLocaleString(),
+            label: "Trade Pairs Built",
+            value: (totalPairs || 0).toLocaleString(),
             icon: "⚡",
           },
         ]);
@@ -120,14 +121,9 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
               icon: "🛡",
             },
             {
-              label: "Arms Exported (TIV)",
-              value: defenseData.total_arms_export_tiv.toLocaleString(),
+              label: "Arms Export Market",
+              value: (defenseData.total_arms_export_market_share || 0).toFixed(1) + "%",
               icon: "🚀",
-            },
-            {
-              label: "Arms Imported (TIV)",
-              value: defenseData.total_arms_import_tiv.toLocaleString(),
-              icon: "📥",
             },
             {
               label: "Nuclear Countries",
@@ -157,47 +153,44 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
           ]);
         }
       } else if (activeModule === "economy") {
-        const [influence, graph] = await Promise.all([
+        const [influence, tradePairs, tradeVuln] = await Promise.all([
           fetchEconomyInfluenceRanking(),
-          fetchGraphSummary(),
+          fetchEconomyTopTradePairs(),
+          fetchEconomyTradeVulnerabilityRanking(),
         ]);
 
-        const topTrader = influence?.[0]?.country || "USA";
-        const highDeps =
-          graph?.relationships?.find(
-            (r: any) => r.rel === "HAS_HIGH_DEPENDENCY_ON",
-          )?.cnt || 0;
-        const agreements =
-          graph?.relationships?.find(
-            (r: any) => r.rel === "HAS_TRADE_AGREEMENT_WITH",
-          )?.cnt || 0;
-        const sanctioned =
-          graph?.relationships?.find(
-            (r: any) => r.rel === "IMPOSED_SANCTIONS_ON",
-          )?.cnt || 0;
+        const influenceArray = Array.isArray(influence) ? influence : (influence?.data || []);
+        const tradePairsArray = Array.isArray(tradePairs) ? tradePairs : (tradePairs?.data || []);
+        const tradeVulnArray = Array.isArray(tradeVuln) ? tradeVuln : (tradeVuln?.data || []);
+
+        const topTrader = influenceArray?.[0]?.country || "USA";
+        const totalPairs = tradePairsArray?.length || 0;
+        const highDeps = tradeVulnArray?.length || 0;
 
         setStats([
           { label: "Top Trader", value: topTrader, icon: "💰" },
           { label: "High Dependencies", value: highDeps, icon: "🔗" },
-          { label: "Trade Agreements", value: agreements, icon: "🤝" },
-          { label: "Sanctioned", value: sanctioned, icon: "🚫" },
+          { label: "Registered Trade Pairs", value: totalPairs, icon: "🤝" },
+          { label: "Market Influence", value: influenceArray?.length ? `${(influenceArray[0]?.strategic_influence * 100).toFixed(0)}%` : "N/A", icon: "🌐" },
         ]);
       } else if (activeModule === "geopolitics") {
-        const graph = await fetchGraphSummary();
-        const sanctioned =
-          graph?.relationships?.find(
-            (r: any) => r.rel === "IMPOSED_SANCTIONS_ON",
-          )?.cnt || 0;
-        const ties =
-          graph?.relationships?.find(
-            (r: any) => r.rel === "DIPLOMATIC_INTERACTION",
-          )?.cnt || 0;
+        const [centrality, network] = await Promise.all([
+          fetchGeopoliticsCentralityRanking(),
+          fetchGeopoliticsNetwork()
+        ]);
+        
+        const centralityArray = Array.isArray(centrality) ? centrality : (centrality?.data || []);
+        const networkNodes = Array.isArray(network) ? network : (network?.nodes || network?.data || []);
+        const networkEdges = network?.edges || (Array.isArray(network) ? network : []);
+        
+        const topCentral = centralityArray?.[0]?.country || "N/A";
+        const tiesCount = networkEdges?.length || 0;
 
         setStats([
-          { label: "Democracies", value: "N/A — coming", icon: "🏛" },
-          { label: "Alliances", value: 8, icon: "🤝" },
-          { label: "Sanctioned", value: sanctioned, icon: "🚫" },
-          { label: "Diplomatic Ties", value: ties, icon: "🌐" },
+          { label: "Top Central Node", value: topCentral, icon: "🏛" },
+          { label: "Diplomatic Ties", value: tiesCount, icon: "🌐" },
+          { label: "Network Density", value: network?.density ? `${(network.density * 100).toFixed(1)}%` : "N/A", icon: "🔗" },
+          { label: "Active Actors", value: networkNodes?.length || 0, icon: "👥" },
         ]);
       } else if (activeModule === "climate") {
         setStats([
@@ -245,13 +238,13 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
               key={stat.label}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
+              transition={{ delay: index * 0.08 }}
               className={`
-                w-[180px] p-3 rounded-xl border flex flex-col gap-1 shadow-lg backdrop-blur-md transition-colors duration-500
+                w-[180px] p-3 rounded-xl border flex flex-col gap-1 shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-md transition-colors duration-500
                 ${
                   isDayMode
                     ? "bg-white/85 border-black/10 text-slate-800"
-                    : "bg-slate-900/85 border-white/10 text-white"
+                    : "bg-gradient-to-br from-slate-900/95 to-slate-800/90 border-white/8 text-white w-full"
                 }
               `}
             >
@@ -265,7 +258,7 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
               </div>
 
               <div className="flex items-baseline gap-2">
-                <span className="text-xl font-bold tracking-tight">
+                <span className="text-2xl font-black tracking-tight font-mono">
                   {stat.value}
                 </span>
                 {stat.delta && (

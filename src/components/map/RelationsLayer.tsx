@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as d3 from "d3";
 import { ActiveModule, CountryProfile, RelationEdge } from "../../types";
@@ -15,341 +15,233 @@ interface RelationsLayerProps {
   relations?: RelationEdge[];
 }
 
-interface CountryGeo {
-  name: string;
-  lon: number;
-  lat: number;
-}
-
-const COUNTRY_GEO_FALLBACK: CountryGeo[] = [
-  { name: "United States", lon: -95, lat: 37 },
-  { name: "Russian Federation", lon: 100, lat: 60 },
-];
-
-const DEFENCE_RELATIONS = [
-  {
-    from: "United States",
-    to: "United Kingdom",
-    strength: 2.5,
-    type: "Military Trade",
-  },
-  { from: "United States", to: "Japan", strength: 2.2, type: "Military Trade" },
-  {
-    from: "Russian Federation",
-    to: "India",
-    strength: 2.8,
-    type: "Strategic Defence",
-  },
-  { from: "France", to: "India", strength: 2.4, type: "Rafale Deal" },
-  {
-    from: "United States",
-    to: "India",
-    strength: 2.1,
-    type: "Defence Partnership",
-  },
-  { from: "China", to: "Pakistan", strength: 2.1, type: "Military Trade" },
-  {
-    from: "United States",
-    to: "Israel",
-    strength: 2.3,
-    type: "Military Trade",
-  },
-  { from: "India", to: "Israel", strength: 2.0, type: "Joint Tech" },
-  { from: "Germany", to: "Israel", strength: 1.7, type: "Military Trade" },
-  {
-    from: "United Kingdom",
-    to: "Saudi Arabia",
-    strength: 1.9,
-    type: "Military Trade",
-  },
-];
-
-const ECONOMY_RELATIONS = [
-  { from: "China", to: "United States", strength: 2.8, type: "Trade Deal" },
-  { from: "Germany", to: "China", strength: 2.4, type: "Trade Deal" },
-  {
-    from: "India",
-    to: "United Arab Emirates",
-    strength: 2.5,
-    type: "CEPA Trade",
-  },
-  {
-    from: "India",
-    to: "United Kingdom",
-    strength: 2.0,
-    type: "FTA Negotiations",
-  },
-  { from: "Japan", to: "Australia", strength: 1.8, type: "Trade Deal" },
-  { from: "Canada", to: "United States", strength: 2.9, type: "Trade Deal" },
-  { from: "Brazil", to: "China", strength: 2.2, type: "Trade Deal" },
-  {
-    from: "India",
-    to: "Australia",
-    strength: 2.1,
-    type: "Economic Cooperation",
-  },
-  { from: "Saudi Arabia", to: "China", strength: 2.1, type: "Energy Trade" },
-];
-
-const GEOPOLITICS_RELATIONS = [
-  {
-    from: "United States",
-    to: "United Kingdom",
-    strength: 2.5,
-    type: "Alliance",
-  },
-  {
-    from: "India",
-    to: "United States",
-    strength: 2.3,
-    type: "Quad Alliance",
-  },
-  { from: "India", to: "Japan", strength: 2.2, type: "Quad Alliance" },
-  { from: "India", to: "Australia", strength: 2.1, type: "Quad Alliance" },
-  {
-    from: "China",
-    to: "Russian Federation",
-    strength: 2.2,
-    type: "Strategic Partnership",
-  },
-  { from: "Brazil", to: "Russian Federation", strength: 1.8, type: "BRICS" },
-  { from: "South Africa", to: "India", strength: 1.9, type: "BRICS" },
-  {
-    from: "India",
-    to: "Russian Federation",
-    strength: 2.0,
-    type: "Strategic Autonomy",
-  },
-  { from: "Germany", to: "France", strength: 2.4, type: "EU core" },
-];
-
 const RelationsLayer: React.FC<RelationsLayerProps> = ({
   activeModule,
   profileMap,
   isVisible,
-  onToggle,
   countryCoords,
   dimensions,
   relations,
 }) => {
   const [hoveredPoint, setHoveredPoint] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   const moduleConfig = MODULE_CONFIGS[activeModule] || MODULE_CONFIGS.overview;
 
+  // ── Projection — must exactly match HexMap.tsx ──────────────
   const projection = useMemo(() => {
+    if (dimensions.width <= 0 || dimensions.height <= 0) return null;
     const proj = d3.geoNaturalEarth1();
-    if (dimensions.width > 0 && dimensions.height > 0) {
-      proj.fitSize([dimensions.width, dimensions.height], {
-        type: "Sphere",
-      } as any);
-      const [tx, ty] = proj.translate();
-      proj.translate([tx, ty + 40]); // Match HexMap alignment push
-    }
+    proj.fitSize([dimensions.width, dimensions.height], { type: "Sphere" } as any);
+    const [tx, ty] = proj.translate();
+    proj.translate([tx, ty + 40]); // ← same +40 offset as HexMap
     return proj;
-  }, [dimensions]);
+  }, [dimensions.width, dimensions.height]);
 
-  const currentRelations = useMemo(() => {
-    if (relations && relations.length > 0) return relations;
-
-    const fallbackRelations: any[] = [];
-    // Generate relations from alliances in profiles
-    profileMap.forEach((profile, countryName) => {
-      if (profile.alliances && profile.alliances.length > 0) {
-        profile.alliances.forEach((ally) => {
-          if (ally !== countryName) {
-            fallbackRelations.push({
-              fromCountry: countryName,
-              toCountry: ally,
-              weight: 0.5,
-              type: "Alliance",
-              moduleColor: moduleConfig.accent,
-            });
-          }
-        });
-      }
-    });
-
-    if (fallbackRelations.length === 0) {
-      const staticRels =
-        activeModule === "defence"
-          ? DEFENCE_RELATIONS
-          : activeModule === "economy"
-            ? ECONOMY_RELATIONS
-            : activeModule === "geopolitics"
-              ? GEOPOLITICS_RELATIONS
-              : [];
-
-      return staticRels.map((r) => ({
-        fromCountry: r.from,
-        toCountry: r.to,
-        weight: r.strength / 3,
-        moduleColor: moduleConfig.accent,
-      }));
-    }
-    return fallbackRelations;
-  }, [profileMap, activeModule, relations, moduleConfig.accent]);
-
-  // Use either provided coords or fallback
+  // ── Coordinate lookup (prioritise centroid map, fall back to static) ──
   const getCoords = (name: string): [number, number] | null => {
-    if (countryCoords && countryCoords.has(name)) {
-      return countryCoords.get(name)!;
-    }
-    const normalized = normalizeCountryName(name) || name;
-    return COUNTRY_COORDS[normalized] || null;
+    if (countryCoords?.has(name)) return countryCoords.get(name)!;
+    const norm = normalizeCountryName(name);
+    if (norm && countryCoords?.has(norm)) return countryCoords.get(norm)!;
+    if (COUNTRY_COORDS[name]) return COUNTRY_COORDS[name];
+    if (norm && COUNTRY_COORDS[norm]) return COUNTRY_COORDS[norm];
+    return null;
   };
 
-  const getScore = (countryName: string) => {
-    const profile = profileMap.get(countryName);
-    if (!profile) return 0.4;
-    switch (activeModule) {
-      case "defence":
-        return profile.military_strength || 0.5;
-      case "economy":
-        return (profile.arms_export || 0) + (profile.defense_spending || 0);
-      case "geopolitics":
-        return profile.diplomatic_centrality || 0.6;
-      case "climate":
-        return (
-          (profile.live_risk || 0) * 0.7 + (profile.conflict_risk || 0) * 0.3
-        );
-      default:
-        return 0.5;
-    }
+  // ── Project a lon/lat to SVG pixel ─────────────────────────
+  const project = (geo: [number, number]) => {
+    if (!projection) return { x: 0, y: 0 };
+    const pt = projection(geo);
+    return pt ? { x: pt[0], y: pt[1] } : { x: 0, y: 0 };
   };
 
-  const projectPoint = (geo: [number, number]) => {
-    const [x, y] = projection(geo) || [0, 0];
-    return { x, y };
-  };
+  // ── Resolve relations to render ────────────────────────────
+  const renderedRelations = useMemo(() => {
+    if (!relations || relations.length === 0) return [];
+    return relations
+      .slice(0, 120)
+      .map((rel) => {
+        const sc = getCoords(rel.fromCountry);
+        const ec = getCoords(rel.toCountry);
+        if (!sc || !ec) return null;
+        return { ...rel, sc, ec };
+      })
+      .filter(Boolean) as (RelationEdge & {
+      sc: [number, number];
+      ec: [number, number];
+    })[];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [relations, countryCoords, dimensions]);
+
+  // ── Countries to show dots for ─────────────────────────────
+  const countryDots = useMemo(() => {
+    const dots: { name: string; geo: [number, number]; score: number }[] = [];
+    // Use the centroid map if available (most accurate), else static
+    const source: Map<string, [number, number]> | Record<string, [number, number]> =
+      countryCoords && countryCoords.size > 0 ? countryCoords : COUNTRY_COORDS;
+
+    const entries = source instanceof Map ? [...source.entries()] : Object.entries(source);
+
+    entries.forEach(([name, geo]) => {
+      const profile = profileMap.get(name);
+      const score = (() => {
+        if (!profile) return 0.3;
+        switch (activeModule) {
+          case "defence": return profile.military_strength ?? 0.3;
+          case "economy": return (profile.arms_export ?? 0) + (profile.defense_spending ?? 0);
+          case "geopolitics": return profile.diplomatic_centrality ?? 0.3;
+          case "climate": return (profile.live_risk ?? 0) * 0.7 + (profile.conflict_risk ?? 0) * 0.3;
+          default: return profile.defense_composite ?? 0.3;
+        }
+      })();
+      dots.push({ name, geo: geo as [number, number], score });
+    });
+    return dots;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileMap, activeModule, countryCoords, dimensions]);
+
+  if (!projection || dimensions.width <= 0) return null;
 
   return (
-    <div
-      ref={containerRef}
-      className="absolute inset-0 pointer-events-none overflow-hidden"
-    >
-      {/* Toggle Button moved to page.tsx for global control, keeping this for flat map only if needed, 
-          but for now we'll rely on the one in page.tsx to avoid duplication */}
-
-      {/* SVG Layer */}
+    <div className="absolute inset-0 pointer-events-none overflow-hidden">
       <AnimatePresence>
-        {isVisible && dimensions.width > 0 && (
+        {isVisible && (
           <motion.svg
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 w-full h-full z-[100]"
+            transition={{ duration: 0.4 }}
+            className="absolute inset-0 w-full h-full z-[50]"
             viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
-            preserveAspectRatio="xMidYMid meet"
+            preserveAspectRatio="none"
           >
             <defs>
-              <filter id="glow-line">
-                <feGaussianBlur stdDeviation="1.5" result="blur" />
+              <filter id="arc-glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="2" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+              <filter id="dot-glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
                 <feComposite in="SourceGraphic" in2="blur" operator="over" />
               </filter>
             </defs>
 
-            {/* Relations Lines */}
-            {currentRelations.map((rel, i) => {
-              const startGeo = getCoords(rel.fromCountry);
-              const endGeo = getCoords(rel.toCountry);
-              if (!startGeo || !endGeo) return null;
+            {/* ── Relation arcs ── */}
+            {renderedRelations.map((rel, i) => {
+              const s = project(rel.sc);
+              const e = project(rel.ec);
+              if (s.x === 0 && s.y === 0) return null;
+              if (e.x === 0 && e.y === 0) return null;
 
-              const start = projectPoint(startGeo);
-              const end = projectPoint(endGeo);
-
-              // Draw a quadratic bezier curve for aesthetic "arc"
-              const dx = end.x - start.x;
-              const dy = end.y - start.y;
+              const dx = e.x - s.x;
+              const dy = e.y - s.y;
               const dr = Math.sqrt(dx * dx + dy * dy);
-              const midX = (start.x + end.x) / 2;
-              const midY = (start.y + end.y) / 2 - dr * 0.15;
-              const path = `M ${start.x} ${start.y} Q ${midX} ${midY} ${end.x} ${end.y}`;
+              const cx = (s.x + e.x) / 2;
+              const cy = (s.y + e.y) / 2 - dr * 0.18;
+              const path = `M ${s.x} ${s.y} Q ${cx} ${cy} ${e.x} ${e.y}`;
+              const w = Math.max(0.5, (rel.weight ?? 0.5) * 2.5);
+              const col = rel.moduleColor ?? moduleConfig.accent;
 
               return (
                 <g key={i}>
+                  {/* Glow halo */}
                   <path
                     d={path}
                     fill="none"
-                    stroke={rel.moduleColor || moduleConfig.accent}
-                    strokeWidth={(rel.weight || 0.5) * 2}
-                    strokeOpacity="0.15"
-                    filter="url(#glow-line)"
+                    stroke={col}
+                    strokeWidth={w + 2}
+                    strokeOpacity={0.08}
+                    filter="url(#arc-glow)"
                   />
+                  {/* Base line */}
+                  <path
+                    d={path}
+                    fill="none"
+                    stroke={col}
+                    strokeWidth={w}
+                    strokeOpacity={0.25}
+                  />
+                  {/* Animated dash */}
                   <motion.path
                     d={path}
                     fill="none"
-                    stroke={rel.moduleColor || moduleConfig.accent}
-                    strokeWidth={(rel.weight || 0.5) * 2}
-                    strokeOpacity="0.4"
-                    strokeDasharray="4, 10"
+                    stroke={col}
+                    strokeWidth={w}
+                    strokeOpacity={0.6}
+                    strokeDasharray="6 14"
                     animate={{ strokeDashoffset: [0, -40] }}
-                    transition={{
-                      duration: 3,
-                      repeat: Infinity,
-                      ease: "linear",
-                    }}
+                    transition={{ duration: 2.5, repeat: Infinity, ease: "linear" }}
                   />
                 </g>
               );
             })}
 
-            {/* Country Circles */}
-            {Object.keys(COUNTRY_COORDS).map((countryName) => {
-              const geo = COUNTRY_COORDS[countryName];
-              const point = projectPoint(geo);
-              const score = getScore(countryName);
-              const radius = Math.min(score * 20 + 2, 25);
-              const isHovered = hoveredPoint === countryName;
+            {/* ── Country dots ── */}
+            {countryDots.map(({ name, geo, score }) => {
+              const p = project(geo);
+              if (p.x === 0 && p.y === 0) return null;
+              const r = Math.max(2.5, Math.min(score * 18 + 2, 20));
+              const isHov = hoveredPoint === name;
 
               return (
-                <g key={countryName} className="pointer-events-auto">
+                <g
+                  key={name}
+                  className="pointer-events-auto"
+                  style={{ cursor: "help" }}
+                  onMouseEnter={() => setHoveredPoint(name)}
+                  onMouseLeave={() => setHoveredPoint(null)}
+                >
+                  {/* Pulse ring */}
+                  {isHov && (
+                    <motion.circle
+                      cx={p.x}
+                      cy={p.y}
+                      r={r + 6}
+                      fill="none"
+                      stroke={moduleConfig.accent}
+                      strokeWidth={1}
+                      strokeOpacity={0.5}
+                      animate={{ r: [r + 4, r + 10], opacity: [0.6, 0] }}
+                      transition={{ duration: 1, repeat: Infinity }}
+                    />
+                  )}
                   <circle
-                    cx={point.x}
-                    cy={point.y}
-                    r={radius}
+                    cx={p.x}
+                    cy={p.y}
+                    r={r}
                     fill={moduleConfig.accent}
-                    fillOpacity={isHovered ? 0.3 : 0.15}
+                    fillOpacity={isHov ? 0.35 : 0.18}
                     stroke={moduleConfig.accent}
-                    strokeWidth="1"
-                    strokeOpacity="0.5"
-                    onMouseEnter={() => setHoveredPoint(countryName)}
-                    onMouseLeave={() => setHoveredPoint(null)}
-                    className="cursor-help transition-all duration-200"
+                    strokeWidth={isHov ? 1.5 : 0.8}
+                    strokeOpacity={0.7}
+                    filter={isHov ? "url(#dot-glow)" : undefined}
                   />
-
-                  {/* Label on Hover */}
-                  <AnimatePresence>
-                    {isHovered && (
-                      <motion.g
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
+                  {/* Hover label */}
+                  {isHov && (
+                    <g>
+                      <rect
+                        x={p.x - 55}
+                        y={p.y - r - 34}
+                        width={110}
+                        height={26}
+                        rx={6}
+                        fill="rgba(15,23,42,0.95)"
+                        stroke="rgba(255,255,255,0.12)"
+                        strokeWidth={0.5}
+                      />
+                      <text
+                        x={p.x}
+                        y={p.y - r - 17}
+                        textAnchor="middle"
+                        fill="white"
+                        fontSize={9}
+                        fontWeight="700"
+                        fontFamily="monospace"
+                        className="select-none uppercase"
                       >
-                        <rect
-                          x={point.x - 60}
-                          y={point.y - radius - 35}
-                          width="120"
-                          height="26"
-                          rx="6"
-                          fill="rgba(15, 23, 42, 0.95)"
-                          stroke="rgba(255,255,255,0.1)"
-                        />
-                        <text
-                          x={point.x}
-                          y={point.y - radius - 18}
-                          textAnchor="middle"
-                          fill="white"
-                          fontSize="10"
-                          fontWeight="600"
-                          className="select-none"
-                        >
-                          {countryName.split(",")[0]} —{" "}
-                          {(score * 100).toFixed(0)}%
-                        </text>
-                      </motion.g>
-                    )}
-                  </AnimatePresence>
+                        {name.split(",")[0].substring(0, 20)} — {(score * 100).toFixed(0)}%
+                      </text>
+                    </g>
+                  )}
                 </g>
               );
             })}

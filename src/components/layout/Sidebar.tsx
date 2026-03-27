@@ -11,6 +11,8 @@ import {
   LayoutGrid,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { MODULE_CONFIGS } from "../../lib/api";
 import { ActiveModule } from "../../types";
 
@@ -19,9 +21,9 @@ interface SidebarProps {
 }
 
 const navItems = [
-  { icon: Globe, label: "Overview", key: "map" },
-  { icon: Activity, label: "Simulation", key: "simulator" },
-  { icon: Database, label: "Queries", key: "registry" },
+  { icon: Globe, label: "Overview", key: "map", href: "/" },
+  { icon: Activity, label: "Simulation", key: "simulator", href: "/simulation" },
+  { icon: Database, label: "Queries", key: "registry", href: "/queries" },
 ];
 
 const bottomNavItems = [
@@ -30,45 +32,48 @@ const bottomNavItems = [
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ activeModule }) => {
+  const pathname = usePathname();
+
   return (
     <aside className="fixed left-0 top-[64px] bottom-0 z-[60] w-[72px] hover:w-[240px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden bg-slate-950/40 backdrop-blur-2xl border-r border-white/5 group shadow-2xl">
       <div className="flex flex-col h-full py-6">
         {/* Top Navigation */}
         <div className="flex flex-col gap-2 px-3">
           {navItems.map((item, index) => {
-            const isActive = item.key === "map";
+            const isActive = pathname === item.href;
             return (
-              <motion.div
-                key={item.key}
-                whileHover={{ x: 4 }}
-                className={`relative flex items-center h-12 rounded-xl cursor-pointer transition-all duration-300 ${
-                  isActive
-                    ? "bg-indigo-500/10 text-white"
-                    : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
-                }`}
-              >
-                {isActive && (
-                  <motion.div
-                    layoutId="sidebar-active"
-                    className="absolute left-0 w-1 h-6 bg-indigo-500 rounded-r-full shadow-[0_0_10px_rgba(99,102,241,0.5)]"
-                  />
-                )}
+              <Link key={item.key} href={item.href}>
+                <motion.div
+                  whileHover={{ x: 4 }}
+                  className={`relative flex items-center h-12 rounded-xl cursor-pointer transition-all duration-300 ${
+                    isActive
+                      ? "bg-indigo-500/10 text-white"
+                      : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
+                  }`}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="sidebar-active"
+                      className="absolute left-0 w-1 h-6 bg-indigo-500 rounded-r-full shadow-[0_0_10px_rgba(99,102,241,0.5)]"
+                    />
+                  )}
 
-                <div className="w-[48px] flex items-center justify-center shrink-0">
-                  <item.icon
-                    size={20}
-                    className={isActive ? "text-indigo-400" : ""}
-                  />
-                </div>
+                  <div className="w-[48px] flex items-center justify-center shrink-0">
+                    <item.icon
+                      size={20}
+                      className={isActive ? "text-indigo-400" : ""}
+                    />
+                  </div>
 
-                <span className="text-[13px] font-bold tracking-tight whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-100">
-                  {item.label}
-                </span>
+                  <span className="text-[13px] font-bold tracking-tight whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-100">
+                    {item.label}
+                  </span>
 
-                {isActive && (
-                  <div className="absolute right-4 w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse opacity-0 group-hover:opacity-100" />
-                )}
-              </motion.div>
+                  {isActive && (
+                    <div className="absolute right-4 w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse opacity-0 group-hover:opacity-100" />
+                  )}
+                </motion.div>
+              </Link>
             );
           })}
         </div>

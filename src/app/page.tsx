@@ -17,7 +17,7 @@ import MapToggle from "../components/map/MapToggle";
 import RelationsLayer from "../components/map/RelationsLayer";
 import CountryHoverCard from "../components/map/CountryHoverCard";
 import CountryDetailPanel from "../components/map/CountryDetailPanel";
-import ChatbotButton from "../components/ui/ChatbotButton";
+
 import AccessibilityPanel from "../components/ui/AccessibilityPanel";
 import DayNightBackground from "../components/ui/DayNightBackground";
 import StatsOverlay from "../components/ui/StatsOverlay";
@@ -218,9 +218,11 @@ export default function Home() {
       <Sidebar activeModule={activeModule} />
 
       {/* Unified Relations Toggle */}
-      <div className="fixed top-[140px] right-8 z-[100] pointer-events-auto">
-        <button
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto">
+        <motion.button
           onClick={() => setIsRelationsVisible(!isRelationsVisible)}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           className={`flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all duration-300 shadow-2xl backdrop-blur-xl ${
             isRelationsVisible
               ? "bg-indigo-500/20 border-indigo-500/50 text-white"
@@ -233,7 +235,7 @@ export default function Home() {
           <span className="text-[11px] font-bold tracking-wider uppercase">
             Relations {isRelationsVisible ? "Online" : "Offline"}
           </span>
-        </button>
+        </motion.button>
       </div>
 
       <section
@@ -330,10 +332,7 @@ export default function Home() {
         />
       </div>
 
-      <ChatbotButton
-        activeModule={activeModule}
-        selectedCountry={selectedCountry}
-      />
+
       <AccessibilityPanel />
 
       <StatsOverlay

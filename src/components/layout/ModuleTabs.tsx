@@ -30,9 +30,14 @@ const ModuleTabs: React.FC<ModuleTabsProps> = ({ activeModule, onModuleChange })
         const config = MODULE_CONFIGS[tab.key];
         
         return (
-          <button
+          <motion.button
             key={tab.key}
             onClick={() => onModuleChange(tab.key)}
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 1.2 + tabs.indexOf(tab) * 0.1, type: "spring", stiffness: 300, damping: 20 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             className={`relative flex items-center h-11 px-5 gap-2.5 rounded-xl text-[11px] font-bold tracking-wider uppercase transition-all duration-500 group ${
               isActive ? 'text-white' : 'text-slate-400 hover:text-slate-200'
             }`}
@@ -57,7 +62,7 @@ const ModuleTabs: React.FC<ModuleTabsProps> = ({ activeModule, onModuleChange })
                 className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-white rounded-full"
               />
             )}
-          </button>
+          </motion.button>
         );
       })}
     </motion.div>

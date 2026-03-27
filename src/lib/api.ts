@@ -1,6 +1,6 @@
 import { CountryProfile, ModuleConfig } from "../types";
 
-const BASE_URL = "http://127.0.0.1:8000";
+const BASE_URL = "/api/backend";
 
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -60,11 +60,62 @@ async function fetchWithCache<T>(key: string, url: string): Promise<T | null> {
 
 export async function fetchAllProfiles(): Promise<CountryProfile[] | null> {
   try {
-    const data = await fetchWithCache<{ profiles: CountryProfile[] }>(
-      "all-profiles",
-      `${BASE_URL}/simulator/profiles?limit=261`,
-    );
-    return data ? data.profiles : null;
+    const [globalRisk, influence, defense] = await Promise.all([
+      fetchWithCache<any>(
+        "global-risk-all",
+        `${BASE_URL}/composite/rankings/global-risk`
+      ),
+      fetchWithCache<any>(
+        "influence-all",
+        `${BASE_URL}/composite/rankings/influence`
+      ),
+      fetchWithCache<{ data: any[] }>(
+        "defense-spending-all",
+        `${BASE_URL}/defense/spending/top?limit=261`
+      ),
+    ]);
+
+    if (!globalRisk && !influence && !defense) return null;
+
+    const profileMap = new Map<string, CountryProfile>();
+
+    const getProfile = (country: string): CountryProfile => {
+      if (!profileMap.has(country)) {
+        profileMap.set(country, { country });
+      }
+      return profileMap.get(country)!;
+    };
+
+    const globalRiskArray = Array.isArray(globalRisk) ? globalRisk : globalRisk?.data;
+    if (Array.isArray(globalRiskArray)) {
+      globalRiskArray.forEach((r: any) => {
+        if (!r.country) return;
+        const p = getProfile(r.country);
+        p.conflict_risk = r.global_risk;
+        p.live_risk = r.global_risk;
+      });
+    }
+
+    const influenceArray = Array.isArray(influence) ? influence : influence?.data;
+    if (Array.isArray(influenceArray)) {
+      influenceArray.forEach((r: any) => {
+        if (!r.country) return;
+        const p = getProfile(r.country);
+        p.diplomatic_centrality = r.strategic_influence;
+      });
+    }
+
+    const defenseArray = Array.isArray(defense) ? defense : defense?.data;
+    if (Array.isArray(defenseArray)) {
+      defenseArray.forEach((r: any) => {
+        if (!r.country) return;
+        const p = getProfile(r.country);
+        p.defense_spending = r.spending_usd_millions;
+        p.defense_burden = r.normalized_weight;
+      });
+    }
+
+    return Array.from(profileMap.values());
   } catch (error) {
     console.error("Failed to fetch all profiles:", error);
     return null;
@@ -252,10 +303,40 @@ export async function fetchGeopoliticsNetwork(): Promise<any | null> {
   );
 }
 
+export async function fetchSimulateScenarios(): Promise<{ id: string, name: string }[]> {
+  try {
+    const res = await fetch(`${BASE_URL}/simulate/scenarios`);
+    if(res.ok) return await res.json();
+  } catch(e) {}
+  // Mock Data Fallback
+  return [
+    { id: "sanctions", name: "Sanctions Escalation" },
+    { id: "trade_war", name: "Trade War" },
+    { id: "energy_cutoff", name: "Energy Cutoff" },
+    { id: "conflict", name: "Kinetic Conflict" },
+    { id: "alliance_exit", name: "Alliance Exit" },
+    { id: "climate", name: "Severe Climate Disaster" }
+  ];
+}
+
+export async function fetchGeopoliticsCentralityRanking(): Promise<any | null> {
+  return fetchWithCache<any>(
+    "geopolitics-centrality-ranking",
+    `${BASE_URL}/geopolitics/rankings/centrality`,
+  );
+}
+
 export async function fetchEconomyTopTradePairs(): Promise<any | null> {
   return fetchWithCache<any>(
     "top-trade-pairs",
     `${BASE_URL}/economy/trade-pairs`,
+  );
+}
+
+export async function fetchEconomyTradeVulnerabilityRanking(): Promise<any | null> {
+  return fetchWithCache<any>(
+    "economy-trade-vulnerability",
+    `${BASE_URL}/economy/rankings/trade-vulnerability`,
   );
 }
 
@@ -268,22 +349,21 @@ export async function fetchClimateGlobalConflictRisk(): Promise<any | null> {
 
 export async function fetchDefenseGlobalTotals(): Promise<{
   total_spending_usd: number;
-  total_arms_export_tiv: number;
-  total_arms_import_tiv: number;
+  total_arms_export_market_share: number;
   nuclear_countries_count: number;
   active_conflicts_count: number;
 } | null> {
   try {
     const [spending, arms, conflicts] = await Promise.all([
-      fetchWithCache<any>(
+      fetchWithCache<{data: any[]}>(
         "defense-spending-top",
         `${BASE_URL}/defense/spending/top?limit=100`,
       ),
-      fetchWithCache<any>(
+      fetchWithCache<{data: any[]}>(
         "defense-arms-top",
         `${BASE_URL}/defense/arms/top?limit=100`,
       ),
-      fetchWithCache<any>(
+      fetchWithCache<{data: any[]}>(
         "defense-conflicts-top",
         `${BASE_URL}/defense/conflicts/top?limit=100`,
       ),
@@ -291,30 +371,23 @@ export async function fetchDefenseGlobalTotals(): Promise<{
 
     if (!spending && !arms && !conflicts) return null;
 
-    // SIPRI spending_2023 is in Millions of USD, so convert to absolute USD
-    const total_spending =
-      (spending?.data || []).reduce(
-        (acc: number, c: any) => acc + (c.spending_2023 || 0),
+    const spendingArray = Array.isArray(spending) ? spending : (spending?.data || []);
+    const total_spending = spendingArray.reduce(
+        (acc: number, c: any) => acc + (c.spending_usd_millions || 0),
         0,
-      ) * 1e6;
+    ) * 1e6;
 
-    // TIV is a Trend Indicator Value, but we'll sum it up as a proxy for volume
-    const total_arms_export = (arms?.data || []).reduce(
-      (acc: number, c: any) => acc + (c.total_tiv || 0),
+    const armsArray = Array.isArray(arms) ? arms : (arms?.data || []);
+    const total_arms_export = armsArray.reduce(
+      (acc: number, c: any) => acc + (c.avg_market_share_pct || 0),
       0,
     );
 
-    // Since we don't have a direct import endpoint, we'll assume global exports = global imports for the system
-    const total_arms_import = total_arms_export;
-
-    // For nuclear and conflicts, we'll need to use the profileMap in the component for real counts,
-    // but we can provide placeholders or just leave them as 0 here and let the component handle it.
     return {
       total_spending_usd: total_spending,
-      total_arms_export_tiv: total_arms_export,
-      total_arms_import_tiv: total_arms_import,
-      nuclear_countries_count: 0, // Handled by component
-      active_conflicts_count: 0, // Handled by component
+      total_arms_export_market_share: total_arms_export,
+      nuclear_countries_count: 0,
+      active_conflicts_count: 0,
     };
   } catch (error) {
     console.error("Failed to fetch defense global totals:", error);
@@ -322,13 +395,7 @@ export async function fetchDefenseGlobalTotals(): Promise<{
   }
 }
 
-export async function fetchGraphSummary(): Promise<{
-  relationships: { rel: string; cnt: number }[];
-} | null> {
-  return fetchWithCache<{
-    relationships: { rel: string; cnt: number }[];
-  }>("graph-summary", `${BASE_URL}/graph/summary`);
-}
+
 
 export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
   overview: {
@@ -352,8 +419,13 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
     label: "Geopolitics",
   },
   climate: {
-    accent: "#b4781e",
-    bgTint: "rgba(180,120,30,0.03)",
-    label: "Climate",
+    accent: "#10b981", // Emerald
+    bgTint: "rgba(16, 185, 129, 0.05)",
+    label: "Climate Risk",
+  },
+  simulator: {
+    accent: "#6366f1", // Indigo
+    bgTint: "rgba(99, 102, 241, 0.05)",
+    label: "Simulation",
   },
 };
