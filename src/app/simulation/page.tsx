@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Activity, Clock, AlertTriangle, FileText } from "lucide-react";
+import { Play, Activity, Clock, AlertTriangle, FileText, ChevronUp, ChevronDown } from "lucide-react";
 import Navbar from "../../components/layout/Navbar";
 import Sidebar from "../../components/layout/Sidebar";
 import GlobeMap from "../../components/map/GlobeMap";
@@ -28,6 +28,8 @@ export default function SimulationPage() {
   
   // Mapping of country -> severity from results
   const [simulationResults, setSimulationResults] = useState<Record<string, "critical" | "high" | "medium" | "low">>({});
+  
+  const [isParamsCollapsed, setIsParamsCollapsed] = useState(false);
 
   useEffect(() => {
     fetchSimulateScenarios().then(setScenarios);
@@ -96,12 +98,28 @@ export default function SimulationPage() {
         <div className="w-[40%] h-full bg-slate-900/60 glass-morphism border-l border-white/10 flex flex-col relative z-20 shadow-[-20px_0_50px_rgba(0,0,0,0.5)]">
           
           {/* Controls Section */}
-          <div className="p-8 border-b border-white/10 shrink-0">
-            <h2 className="text-[11px] font-black tracking-[0.2em] text-indigo-400 uppercase mb-6 flex items-center gap-2">
-              <Activity size={14} /> Scenario Parameters
-            </h2>
+          <div className={`p-8 border-b border-white/10 shrink-0 ${isParamsCollapsed ? "pb-4" : ""}`}>
+            <div 
+              className="flex items-center justify-between mb-6 cursor-pointer group"
+              onClick={() => setIsParamsCollapsed(!isParamsCollapsed)}
+            >
+              <h2 className="text-[11px] font-black tracking-[0.2em] text-indigo-400 uppercase flex items-center gap-2">
+                <Activity size={14} /> Scenario Parameters
+              </h2>
+              <div className="text-slate-500 group-hover:text-indigo-400 transition-colors bg-white/5 rounded p-1">
+                {isParamsCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              </div>
+            </div>
 
-            <div className="space-y-6">
+            <AnimatePresence>
+              {!isParamsCollapsed && (
+                <motion.div 
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.3, ease: "easeInOut" }}
+                  className="space-y-6 overflow-hidden"
+                >
               <div className="grid grid-cols-2 gap-4">
                 <SearchableCombobox
                   label="Primary Actor"
@@ -209,8 +227,9 @@ export default function SimulationPage() {
                   )}
                 </motion.button>
               </div>
-
-            </div>
+            </motion.div>
+            )}
+            </AnimatePresence>
           </div>
 
           {/* Results Section */}
@@ -245,9 +264,18 @@ export default function SimulationPage() {
                       </span>
                     </div>
                     <h3 className="text-2xl font-black text-white leading-tight mt-3">
-                      {results.headline}
+                      {results.headline || "Simulation Activated"}
                     </h3>
                   </div>
+
+                  {results.parsed && (
+                    <div className="p-4 bg-indigo-500/5 border border-indigo-500/20 rounded-xl mb-6">
+                      <span className="text-[10px] font-black tracking-widest text-indigo-400 uppercase">Intent Parsed</span>
+                      <p className="text-sm text-indigo-200 mt-1 font-medium font-mono text-xs">
+                        {typeof results.parsed === 'object' ? JSON.stringify(results.parsed, null, 2) : results.parsed}
+                      </p>
+                    </div>
+                  )}
 
                   <div className="prose prose-invert prose-sm">
                     <p className="text-slate-300 leading-relaxed font-medium">
@@ -277,21 +305,36 @@ export default function SimulationPage() {
                     <h4 className="text-[10px] font-black tracking-[0.2em] text-slate-400 uppercase border-b border-white/10 pb-2 mb-4">
                       Affected Actors (Severity Scale)
                     </h4>
-                    <div className="space-y-2">
+                    <div className="space-y-4">
                       {results.affectedCountries?.map((c: any) => (
-                        <div key={c.country} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/5">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-2 h-2 rounded-full shadow-[0_0_10px_currentColor] ${
-                              c.severity === 'critical' ? 'bg-rose-500 text-rose-500' :
-                              c.severity === 'high' ? 'bg-orange-500 text-orange-500' :
-                              c.severity === 'medium' ? 'bg-amber-500 text-amber-500' :
-                              'bg-yellow-500 text-yellow-500'
-                            }`} />
-                            <span className="text-sm font-bold text-white">{c.country}</span>
+                        <div key={c.country} className="flex flex-col p-3 bg-white/5 rounded-lg border border-white/5">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-2 h-2 rounded-full shadow-[0_0_10px_currentColor] ${
+                                c.severity === 'critical' ? 'bg-rose-500 text-rose-500' :
+                                c.severity === 'high' ? 'bg-orange-500 text-orange-500' :
+                                c.severity === 'medium' ? 'bg-amber-500 text-amber-500' :
+                                'bg-yellow-500 text-yellow-500'
+                              }`} />
+                              <span className="text-sm font-bold text-white">{c.country}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {/* Direction Arrows */}
+                              {c.direction === "Increasing" ? (
+                                <span className="text-rose-400 text-[10px] font-black">▲</span>
+                              ) : c.direction === "Decreasing" ? (
+                                <span className="text-emerald-400 text-[10px] font-black">▼</span>
+                              ) : null}
+                              <span className={`text-xs font-mono font-bold ${typeof c.delta === "number" && c.delta > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {c.delta > 0 ? '+' : ''}{c.delta}
+                              </span>
+                            </div>
                           </div>
-                          <span className={`text-xs font-mono font-bold ${typeof c.delta === "number" && c.delta > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {c.delta > 0 ? '+' : ''}{c.delta}
-                          </span>
+                          {c.currentScore !== undefined && (
+                            <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
+                              <span>BASE SCORE: {c.currentScore.toFixed(2)}</span>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -316,6 +359,15 @@ export default function SimulationPage() {
                       ))}
                     </div>
                   </div>
+
+                  {results.computationTime && (
+                    <div className="flex justify-end mt-4">
+                      <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono border border-slate-700/50 bg-slate-900 px-3 py-1.5 rounded-full shadow-inner">
+                        <Clock size={10} />
+                        <span>COMPUTATION TIME: {typeof results.computationTime === 'number' ? `${results.computationTime}s` : results.computationTime}</span>
+                      </div>
+                    </div>
+                  )}
                   
                 </motion.div>
               )}

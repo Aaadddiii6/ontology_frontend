@@ -98,6 +98,7 @@ export const COLORS = {
   economy: { low: "#d5f0e2", mid: "#7ac4a0", high: "#328c50" },
   geopolitics: { low: "#d5e0f5", mid: "#7a9de8", high: "#3c64c8" },
   climate: { low: "#fce8d0", mid: "#e8a870", high: "#b4781e" },
+  simulator: { low: "#ccc", mid: "#999", high: "#666" },
 };
 
 export function getColorForScore(
