@@ -315,33 +315,23 @@ export async function fetchGeopoliticsProfile(
   country: string,
 ): Promise<any | null> {
   const raw = await fetchWithCache<any>(
-    `geopolitics-profile-${country}`,
+    `geopolitics-profile-v6-${country}`,
     `${BASE_URL}/geopolitics/country/${encodeURIComponent(country)}`,
   );
   if (!raw) return null;
 
-  let sanctions: any = null;
-  try {
-    sanctions = await fetchWithCache<any>(
-      `geopolitics-sanctions-${country}`,
-      `${BASE_URL}/geopolitics/country/${encodeURIComponent(country)}/sanctions`,
-    ).catch(() => null);
-  } catch (_) {}
-
+  // Real shape: { country, democracy_score, system_type, centrality, region,
+  //   alliances, top_diplomatic_partners, top_unga_allies, nuclear_status }
   return {
     ...raw,
     political_system: raw.system_type ?? raw.political_system ?? null,
-    political_stability: raw.democracy_score ?? raw.political_stability ?? null,
-    diplomatic_centrality: raw.centrality ?? raw.diplomatic_centrality ?? null,
-    sanctions_imposed:
-      sanctions?.sanctions_imposed_on?.map((s: any) => s.country) ??
-      raw.sanctions_imposed ??
-      [],
-    sanctions_received:
-      sanctions?.sanctions_received_from?.map((s: any) => s.country) ??
-      raw.sanctions_received ??
-      [],
+    political_stability: raw.democracy_score ?? null,
+    diplomatic_centrality: raw.centrality ?? null,
     region: raw.region ?? null,
+    alliances: raw.alliances ?? [],
+    top_partners: (raw.top_diplomatic_partners ?? []).map((p: any) => p.country),
+    sanctions_imposed: raw.sanctions_imposed ?? [],
+    sanctions_received: raw.sanctions_received ?? [],
   };
 }
 
@@ -349,36 +339,27 @@ export async function fetchDefenseProfile(
   country: string,
 ): Promise<any | null> {
   const raw = await fetchWithCache<any>(
-    `defense-spending-${country}`,
+    `defense-spending-v6-${country}`,
     `${BASE_URL}/defense/spending/${encodeURIComponent(country)}`,
   );
   if (!raw) return null;
 
-  const arr = Array.isArray(raw) ? raw : [raw];
-  const sorted = [...arr].sort(
-    (a: any, b: any) => (b.year ?? 0) - (a.year ?? 0),
-  );
+  // Real shape: { country, data: [{year, amount}] }  (amount = USD millions)
+  const arr: any[] = Array.isArray(raw.data) ? raw.data
+    : Array.isArray(raw) ? raw
+    : [];
+
+  const sorted = [...arr].sort((a: any, b: any) => (b.year ?? 0) - (a.year ?? 0));
   const latest = sorted[0];
+  const amountMillions = latest?.amount ?? latest?.spending_usd_millions ?? null;
 
   return {
-    spending_history: sorted,
-    spending_2023:
-      latest?.amount ??
-      latest?.spending_usd_millions ??
-      latest?.spending_2023 ??
-      latest?.spending_usd ??
-      latest?.total_spending ??
-      latest?.value ??
-      null,
-    spending_usd_millions:
-      latest?.amount ??
-      latest?.spending_usd_millions ??
-      latest?.spending_2023 ??
-      latest?.spending_usd ??
-      latest?.total_spending ??
-      latest?.value ??
-      null,
-    normalized_weight: latest?.normalized_weight ?? latest?.burden ?? null,
+    spending_history: sorted.map((r: any) => ({
+      year: r.year,
+      amount: r.amount ?? r.spending_usd_millions ?? 0,
+    })),
+    spending_2023: amountMillions,
+    spending_usd_millions: amountMillions,
     year: latest?.year ?? null,
   };
 }
@@ -387,45 +368,25 @@ export async function fetchDefenseConflicts(
   country: string,
 ): Promise<any | null> {
   const raw = await fetchWithCache<any>(
-    `defense-conflicts-${country}`,
+    `defense-conflicts-v6-${country}`,
     `${BASE_URL}/defense/conflicts/${encodeURIComponent(country)}`,
   );
   if (!raw) return null;
 
-  const arr = Array.isArray(raw) ? raw : [raw];
-  const sorted = [...arr].sort(
-    (a: any, b: any) => (b.year ?? 0) - (a.year ?? 0),
-  );
+  // Real shape: { country, data: [{year, events, fatalities}] }
+  const arr: any[] = Array.isArray(raw.data) ? raw.data
+    : Array.isArray(raw) ? raw
+    : [];
+
+  const sorted = [...arr].sort((a: any, b: any) => (b.year ?? 0) - (a.year ?? 0));
   const latest = sorted[0];
-  const totalFatalities = arr.reduce(
-    (s: number, r: any) =>
-      s + Number(r.total_fatalities ?? r.fatalities ?? r.fatality_count ?? 0),
-    0,
-  );
-  const totalEvents = arr.reduce(
-    (s: number, r: any) =>
-      s + Number(r.violence_events ?? r.events ?? r.event_count ?? 0),
-    0,
-  );
 
   return {
-    fatalities:
-      latest?.total_fatalities ??
-      latest?.fatalities ??
-      latest?.fatality_count ??
-      totalFatalities,
-    events:
-      latest?.violence_events ??
-      latest?.events ??
-      latest?.event_count ??
-      totalEvents,
-    conflict_trend:
-      latest?.fatality_trend ??
-      latest?.conflict_trend ??
-      latest?.trend ??
-      "stable",
+    fatalities: latest?.fatalities ?? null,
+    events: latest?.events != null ? Math.round(latest.events) : null,
+    conflict_trend: "stable",
     year: latest?.year ?? null,
-    history: arr,
+    history: sorted,
   };
 }
 

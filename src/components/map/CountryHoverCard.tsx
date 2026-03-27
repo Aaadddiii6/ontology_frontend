@@ -587,18 +587,6 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
                     value={fmtPct(comp?.diplomatic_centrality)}
                     moduleAccent={moduleAccent}
                   />
-                  <StatRow
-                    label="Region"
-                    value={profile?.region}
-                    moduleAccent={moduleAccent}
-                  />
-                  <StatRow
-                    label="Bloc"
-                    value={
-                      comp?.bloc_id != null ? `Bloc #${comp.bloc_id}` : null
-                    }
-                    moduleAccent={moduleAccent}
-                  />
                 </div>
 
                 {geo?.sanctions_imposed?.length > 0 && (

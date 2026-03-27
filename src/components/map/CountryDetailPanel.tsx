@@ -53,6 +53,7 @@ function fmtDefenseBudget(
   spendingMillions: number | null | undefined,
   burdenRatio: number | null | undefined,
 ): string | null {
+  // spendingMillions is already in USD millions — multiply by 1e6 for fmtUSD
   if (spendingMillions != null && Number(spendingMillions) > 0)
     return fmtUSD(Number(spendingMillions) * 1e6);
   if (burdenRatio != null && Number(burdenRatio) > 0)
