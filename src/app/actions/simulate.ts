@@ -140,7 +140,7 @@ export async function runSimulationAction(params: {
   if (geminiKey) {
     try {
       const prompt = buildGeminiPrompt(params, scenarioLabel);
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
       const t0 = Date.now();
 
       const geminiRes = await fetch(geminiUrl, {
@@ -426,7 +426,7 @@ Choose 1-3 endpoints most relevant to the question. Replace :name with the count
   if (geminiKey) {
     try {
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

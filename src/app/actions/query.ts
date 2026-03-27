@@ -21,7 +21,7 @@ export interface QueryResult {
 
 const BACKEND_BASE_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 const AVAILABLE_ENDPOINTS = `
 GET /composite/rankings/global-risk?limit=N   → [{country, global_risk}]

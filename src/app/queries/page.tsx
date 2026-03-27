@@ -142,8 +142,8 @@ const DataChart = ({
       <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]">
         {chart_title}
       </h4>
-      <div className="h-[280px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
+      <div className="h-[320px] w-full min-h-[320px] relative">
+        <ResponsiveContainer width="99%" height="100%">
           {chart_type === "bar" ? (
             <BarChart
               data={data.slice(0, 15)}
