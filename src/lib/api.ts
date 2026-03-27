@@ -5,6 +5,8 @@ const BASE_URL = "/api/backend";
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_DURATION = 5 * 60 * 1000;
 const NETWORK_ERROR_LOG_THROTTLE_MS = 5 * 60 * 1000;
+// Longer timeout to handle Render cold starts (free tier spins down after inactivity)
+const FETCH_TIMEOUT_MS = 45000;
 const lastNetworkErrorLoggedAt = new Map<string, number>();
 
 function shouldLogKey(key: string) {
@@ -24,7 +26,7 @@ async function fetchWithCache<T>(key: string, url: string): Promise<T | null> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     const controller = new AbortController();
-    timeoutId = setTimeout(() => controller.abort(), 15000);
+    timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) {
