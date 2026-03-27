@@ -38,10 +38,10 @@ import {
   Cell,
 } from "recharts";
 
-import Navbar from "../../components/layout/Navbar";
-import Sidebar from "../../components/layout/Sidebar";
-import DayNightBackground from "../../components/ui/DayNightBackground";
-import { intelligenceQueryAction, QueryResult } from "../actions/query";
+import Navbar from "@/components/layout/Navbar";
+import Sidebar from "@/components/layout/Sidebar";
+import DayNightBackground from "@/components/ui/DayNightBackground";
+import { intelligenceQueryAction, type QueryResult } from "@/app/actions/query";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
