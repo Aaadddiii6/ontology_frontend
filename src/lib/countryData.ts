@@ -33,6 +33,10 @@ export const COUNTRY_NAME_MAP: Record<string, string | null> = {
   USA: "United States",
   "U.S.A.": "United States",
   "United States": "United States",
+  UK: "United Kingdom",
+  "United Kingdom": "United Kingdom",
+  UAE: "United Arab Emirates",
+  "United Arab Emirates": "United Arab Emirates",
 };
 
 export const COUNTRY_COORDS: Record<string, [number, number]> = {
@@ -131,9 +135,11 @@ export function getModuleColor(
       case "defence":
         return profile.military_strength;
       case "economy":
-        return (
-          (profile.arms_export || 0) * 0.5 +
-          (profile.defense_spending || 0) * 0.5
+        // Normalize defense_spending (in millions USD) to a 0-1 score
+        const spendingScore = (profile.defense_spending || 0) / 1000000;
+        return Math.min(
+          1,
+          (profile.arms_export || 0) * 0.5 + spendingScore * 0.5,
         );
       case "geopolitics":
         return profile.diplomatic_centrality;

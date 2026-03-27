@@ -122,7 +122,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeModule }) => {
             </div>
             <div className="flex flex-col overflow-hidden opacity-0 group-hover:opacity-100 transition-opacity duration-300">
               <span className="text-xs font-bold text-white truncate">
-                John Doe
+                Aditya Bhattacharya
               </span>
               <span className="text-[10px] text-slate-500 font-medium truncate uppercase tracking-widest">
                 Admin Level 4

@@ -11,7 +11,6 @@ import {
   Landmark,
   Thermometer,
   Box,
-  Package,
   Activity,
   Zap,
 } from "lucide-react";
@@ -26,7 +25,7 @@ import {
   fetchDefenseConflicts,
   fetchEconomyPartners,
   fetchClimateHazards,
-  MODULE_CONFIGS
+  MODULE_CONFIGS,
 } from "../../lib/api";
 
 interface CountryHoverCardProps {
@@ -37,13 +36,61 @@ interface CountryHoverCardProps {
   onOpenDetail: () => void;
 }
 
+// ─── Format helpers ───────────────────────────────────────────────────────────
+
+/** Format absolute USD: $1.2T / $450B / $32M */
+function fmtUSD(v: number | null | undefined): string | null {
+  if (v == null || isNaN(Number(v))) return null;
+  const n = Number(v);
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (n > 0) return `$${n.toLocaleString()}`;
+  return null;
+}
+
+/** Format a 0–1 score as a percentage string */
+function fmtPct(v: number | null | undefined, digits = 1): string | null {
+  if (v == null || isNaN(Number(v))) return null;
+  return `${(Number(v) * 100).toFixed(digits)}%`;
+}
+
+/** Convert a 0–1 risk score to a human label */
+function riskLabel(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  if (v > 0.75) return "Critical";
+  if (v > 0.5) return "High";
+  if (v > 0.25) return "Moderate";
+  return "Low";
+}
+
+/** Format defense spending that comes in as USD millions */
+function fmtDefenseBudget(
+  spendingMillions: number | null | undefined,
+  burdenRatio: number | null | undefined,
+): string | null {
+  if (spendingMillions != null && Number(spendingMillions) > 0) {
+    return fmtUSD(Number(spendingMillions) * 1e6);
+  }
+  // Fallback: burden is a normalised 0-1 weight, show as "~X% GDP proxy"
+  if (burdenRatio != null && Number(burdenRatio) > 0) {
+    return `${(Number(burdenRatio) * 100).toFixed(1)}% GDP`;
+  }
+  return null;
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
 const StatRow: React.FC<{
   label: string;
   value: string | number | null | undefined;
   icon?: React.ReactNode;
   moduleAccent?: string;
 }> = ({ label, value, icon, moduleAccent }) => (
-  <div className={`flex flex-col gap-1 p-2 bg-gradient-to-br from-white/5 to-white/0 rounded-lg border border-white/8 shadow-[0_4px_16px_rgba(0,0,0,0.2)] border-l-2`} style={{ borderLeftColor: moduleAccent || 'rgba(255,255,255,0.1)' }}>
+  <div
+    className="flex flex-col gap-1 p-2 bg-gradient-to-br from-white/5 to-white/0 rounded-lg border border-white/8 shadow-[0_4px_16px_rgba(0,0,0,0.2)] border-l-2"
+    style={{ borderLeftColor: moduleAccent || "rgba(255,255,255,0.1)" }}
+  >
     <div className="flex items-center gap-1.5 text-[9px] font-black tracking-[0.25em] uppercase text-slate-400">
       {icon}
       {label}
@@ -62,27 +109,7 @@ const SkeletonBox: React.FC = () => (
   <div className="h-12 bg-white/5 rounded-lg animate-pulse" />
 );
 
-/** Helper: format a 0–1 score as a percentage string */
-const fmtPct = (v: number | null | undefined, digits = 1) =>
-  v != null ? `${(v * 100).toFixed(digits)}%` : null;
-
-/** Helper: format a risk level from 0-1 score */
-const riskLabel = (v: number | null | undefined) => {
-  if (v == null) return null;
-  if (v > 0.75) return "Critical";
-  if (v > 0.5) return "High";
-  if (v > 0.25) return "Moderate";
-  return "Low";
-};
-
-/** Helper: format USD trillions/billions */
-const fmtUSD = (v: number | null | undefined) => {
-  if (v == null) return null;
-  if (v >= 1e12) return `$${(v / 1e12).toFixed(1)}T`;
-  if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
-  if (v >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
-  return `$${v.toLocaleString()}`;
-};
+// ─── Main component ───────────────────────────────────────────────────────────
 
 const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
   country,
@@ -157,39 +184,30 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
     return <Minus size={12} className="text-slate-500" />;
   };
 
-  // ── Derived values from composite API (field names from the actual API response) ──
-  // API returns: global_risk, strategic_influence, overall_vulnerability,
-  // primary_vulnerability, trade_vulnerability, energy_vulnerability,
-  // conflict_risk, climate_vulnerability, economic_influence, military_strength,
-  // geopolitical_influence, defense_composite, economic_power, political_stability,
-  // diplomatic_centrality, live_risk, nuclear_status, un_p5, is_regional_power, bloc_id
-  const comp = data?.composite;
-  const econ = data?.economy;
-  const clim = data?.climate;
-  const geo = data?.geopolitics;
-  const def = data?.defense;
-  const conf = data?.conflicts;
+  const comp = data?.composite; // /composite/country/:name
+  const econ = data?.economy; // /economy/country/:name  → { gdp_usd, avg_inflation, economic_risk_score }
+  const clim = data?.climate; // /climate/country/:name  → { climate_risk_score, emissions_level }
+  const geo = data?.geopolitics; // /geopolitics/country/:name
+  const def = data?.defense; // /defense/spending/:name → { spending_2023, spending_history }
+  const conf = data?.conflicts; // /defense/conflicts/:name → { fatalities, events }
 
-  // Economy profile returns: gdp_usd, avg_inflation, economic_risk_score, trade_balance, etc.
-  // Climate profile returns: climate_risk_score, emissions_level, avg_temperature, etc.
-  // Defense spending returns: spending_2023 (in millions USD), spending_history
-  // Geopolitics returns: political_system, bloc, sanctions info
-
+  // ── GDP: prefer absolute gdp_usd from economy endpoint ───────────────────
   const gdpDisplay =
-    fmtUSD(econ?.gdp_usd) ||
-    (comp?.economic_power ? fmtPct(comp.economic_power) : null);
-  const defBudget =
-    def?.spending_2023
-      ? fmtUSD(def.spending_2023 * 1e6)
-      : profile?.defense_burden
-        ? fmtPct(profile.defense_burden)
-        : null;
+    fmtUSD(econ?.gdp_usd) ?? // economy endpoint: absolute USD
+    fmtUSD(comp?.gdp_usd) ?? // composite endpoint: absolute USD
+    null; // don't fall back to percentages
 
-  // Partners: API returns { dependencies: [{partner, share_pct}] }
+  // ── Defense budget: spending_2023 from /defense/spending/:name (USD millions) ──
+  const defBudget = fmtDefenseBudget(
+    def?.spending_2023 ?? def?.spending_usd_millions,
+    profile?.defense_burden,
+  );
+
+  // ── Partners ──────────────────────────────────────────────────────────────
   const topPartners: string[] =
     data?.partners?.dependencies?.slice(0, 3).map((d: any) => d.partner) || [];
 
-  // Hazards: API returns { hazards: [{type, risk_score}] }
+  // ── Hazards ───────────────────────────────────────────────────────────────
   const topHazards: string[] =
     data?.hazards?.hazards?.slice(0, 4).map((h: any) => h.type) || [];
 
@@ -203,12 +221,14 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
       className="fixed left-[80px] top-1/2 -translate-y-1/2 w-[300px] max-h-[80vh] bg-gradient-to-br from-slate-900/95 to-slate-800/90 backdrop-blur-2xl border border-white/8 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] text-white z-[150] flex flex-col overflow-hidden"
     >
-      <div 
+      {/* Accent line */}
+      <div
         className="h-1.5 w-full"
         style={{
-          background: `linear-gradient(to right, ${moduleAccent}, transparent)`
+          background: `linear-gradient(to right, ${moduleAccent}, transparent)`,
         }}
       />
+
       {/* Header */}
       <div className="p-5 pb-4 border-b border-white/5 flex items-start justify-between">
         <div className="flex flex-col gap-1">
@@ -221,7 +241,6 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">
             {profile?.region || geo?.region || "Unknown Region"}
           </span>
-          {/* Nuclear / P5 badges */}
           <div className="flex gap-1.5 mt-1 flex-wrap">
             {(comp?.nuclear_status === "confirmed" ||
               profile?.nuclear === "confirmed") && (
@@ -251,6 +270,7 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
         </motion.button>
       </div>
 
+      {/* Body */}
       <div className="flex-1 overflow-y-auto p-5 space-y-5 scrollbar-hide">
         {loading ? (
           <div className="space-y-3">
@@ -259,64 +279,69 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
                 <SkeletonBox key={i} />
               ))}
             </div>
-            <div className="h-3 bg-white/5 rounded animate-pulse w-3/4" />
-            <div className="h-3 bg-white/5 rounded animate-pulse" />
           </div>
         ) : (
           <>
-            {/* ── OVERVIEW ─────────────────────────────────── */}
+            {/* ── OVERVIEW ──────────────────────────────────────────────── */}
             {activeModule === "overview" && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-2">
                   <StatRow
                     label="GDP"
                     value={gdpDisplay}
-                    icon={<Globe size={10} />} moduleAccent={moduleAccent}
+                    icon={<Globe size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Global Risk"
-                    value={fmtPct(comp?.global_risk)}
-                    icon={<Activity size={10} />} moduleAccent={moduleAccent}
+                    value={riskLabel(
+                      comp?.global_risk ?? profile?.conflict_risk,
+                    )}
+                    icon={<Activity size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
-                    label="Defence Burden"
-                    value={
-                      profile?.defense_burden
-                        ? `${(profile.defense_burden * 100).toFixed(1)}% GDP`
-                        : null
-                    }
-                    icon={<Shield size={10} />} moduleAccent={moduleAccent}
+                    label="Defence Budget"
+                    value={defBudget}
+                    icon={<Shield size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Conflict Risk"
                     value={riskLabel(
                       comp?.conflict_risk ?? profile?.conflict_risk,
                     )}
-                    icon={<TrendingUp size={10} />} moduleAccent={moduleAccent}
+                    icon={<TrendingUp size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Climate Vuln."
                     value={riskLabel(comp?.climate_vulnerability)}
-                    icon={<Thermometer size={10} />} moduleAccent={moduleAccent}
+                    icon={<Thermometer size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Gov System"
                     value={geo?.political_system}
-                    icon={<Landmark size={10} />} moduleAccent={moduleAccent}
+                    icon={<Landmark size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Influence"
                     value={fmtPct(
-                      comp?.strategic_influence ?? profile?.diplomatic_centrality,
+                      comp?.strategic_influence ??
+                        profile?.diplomatic_centrality,
                     )}
-                    icon={<Zap size={10} />} moduleAccent={moduleAccent}
+                    icon={<Zap size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
-                    label="Military"
+                    label="Military Strength"
                     value={fmtPct(
                       comp?.military_strength ?? profile?.military_strength,
                     )}
-                    icon={<Box size={10} />} moduleAccent={moduleAccent}
+                    icon={<Box size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                 </div>
 
@@ -358,47 +383,53 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
               </div>
             )}
 
-            {/* ── DEFENCE ──────────────────────────────────── */}
+            {/* ── DEFENCE ───────────────────────────────────────────────── */}
             {activeModule === "defence" && (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 gap-2">
                   <StatRow
                     label="Defence Budget"
                     value={defBudget}
-                    icon={<Shield size={10} />} moduleAccent={moduleAccent}
+                    icon={<Shield size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Military Strength"
                     value={fmtPct(
                       comp?.military_strength ?? profile?.military_strength,
                     )}
-                    icon={<Activity size={10} />} moduleAccent={moduleAccent}
+                    icon={<Activity size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Defence Composite"
                     value={fmtPct(
                       comp?.defense_composite ?? profile?.defense_composite,
                     )}
-                    icon={<Box size={10} />} moduleAccent={moduleAccent}
+                    icon={<Box size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Conflict Risk"
                     value={riskLabel(
                       comp?.conflict_risk ?? profile?.conflict_risk,
                     )}
-                    icon={<TrendingUp size={10} />} moduleAccent={moduleAccent}
+                    icon={<TrendingUp size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
-                    label="Fatalities" moduleAccent={moduleAccent}
+                    label="Fatalities"
                     value={
                       conf?.fatalities != null
                         ? Number(conf.fatalities).toLocaleString()
                         : null
                     }
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
-                    label="Conflict Events" moduleAccent={moduleAccent}
+                    label="Conflict Events"
                     value={conf?.events ?? null}
+                    moduleAccent={moduleAccent}
                   />
                 </div>
 
@@ -419,10 +450,16 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
                     <motion.div
                       initial={{ width: 0 }}
                       animate={{
-                        width: `${((comp?.military_strength ?? profile?.military_strength ?? 0) * 100).toFixed(0)}%`,
+                        width: `${(
+                          (comp?.military_strength ??
+                            profile?.military_strength ??
+                            0) * 100
+                        ).toFixed(0)}%`,
                       }}
                       transition={{ duration: 0.8, ease: "easeOut" }}
-                      style={{ background: `linear-gradient(to right, ${moduleAccent}40, ${moduleAccent})` }}
+                      style={{
+                        background: `linear-gradient(to right, ${moduleAccent}40, ${moduleAccent})`,
+                      }}
                       className="h-full"
                     />
                   </div>
@@ -439,25 +476,39 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
                     {getTrendIcon(profile?.conflict_trend)}
                   </div>
                 </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {(comp?.nuclear_status === "confirmed" ||
+                    profile?.nuclear === "confirmed") && (
+                    <span className="px-3 py-1 bg-rose-50/10 border border-rose-500/20 rounded-lg text-[10px] font-black text-rose-400 uppercase">
+                      Nuclear Capability
+                    </span>
+                  )}
+                  {(comp?.un_p5 || profile?.p5) && (
+                    <span className="px-3 py-1 bg-indigo-50/10 border border-indigo-500/20 rounded-lg text-[10px] font-black text-indigo-400 uppercase">
+                      UN P5 Security Council
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
-            {/* ── ECONOMY ──────────────────────────────────── */}
+            {/* ── ECONOMY ───────────────────────────────────────────────── */}
             {activeModule === "economy" && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-2">
+                  {/* GDP — absolute value, not a ratio */}
                   <StatRow
                     label="GDP"
                     value={gdpDisplay}
-                    icon={<Globe size={10} />} moduleAccent={moduleAccent}
+                    icon={<Globe size={10} />}
+                    moduleAccent={moduleAccent}
                   />
+                  {/* Economic risk: a 0–1 score, show as label */}
                   <StatRow
                     label="Econ Risk"
-                    value={
-                      econ?.economic_risk_score != null
-                        ? econ.economic_risk_score.toFixed(2)
-                        : fmtPct(comp?.economic_power)
-                    }
+                    value={riskLabel(econ?.economic_risk_score)}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Inflation"
@@ -466,18 +517,22 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
                         ? `${Number(econ.avg_inflation).toFixed(1)}%`
                         : null
                     }
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Trade Vuln."
-                    value={fmtPct(comp?.trade_vulnerability)} moduleAccent={moduleAccent}
+                    value={riskLabel(comp?.trade_vulnerability)}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Energy Vuln."
-                    value={fmtPct(comp?.energy_vulnerability)} moduleAccent={moduleAccent}
+                    value={riskLabel(comp?.energy_vulnerability)}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Econ Influence"
-                    value={fmtPct(comp?.economic_influence)} moduleAccent={moduleAccent}
+                    value={fmtPct(comp?.economic_influence)}
+                    moduleAccent={moduleAccent}
                   />
                 </div>
 
@@ -502,14 +557,15 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
               </div>
             )}
 
-            {/* ── GEOPOLITICS ──────────────────────────────── */}
+            {/* ── GEOPOLITICS ───────────────────────────────────────────── */}
             {activeModule === "geopolitics" && (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 gap-2">
                   <StatRow
                     label="Political System"
                     value={geo?.political_system}
-                    icon={<Landmark size={10} />} moduleAccent={moduleAccent}
+                    icon={<Landmark size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Geopolitical Influence"
@@ -517,27 +573,34 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
                       comp?.geopolitical_influence ??
                         profile?.diplomatic_centrality,
                     )}
-                    icon={<Globe size={10} />} moduleAccent={moduleAccent}
+                    icon={<Globe size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Political Stability"
                     value={fmtPct(comp?.political_stability)}
-                    icon={<Activity size={10} />} moduleAccent={moduleAccent}
+                    icon={<Activity size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
                     label="Diplomatic Centrality"
-                    value={fmtPct(comp?.diplomatic_centrality)} moduleAccent={moduleAccent}
+                    value={fmtPct(comp?.diplomatic_centrality)}
+                    moduleAccent={moduleAccent}
                   />
-                  <StatRow label="Region" value={profile?.region} moduleAccent={moduleAccent} />
                   <StatRow
-                    label="Bloc" moduleAccent={moduleAccent}
+                    label="Region"
+                    value={profile?.region}
+                    moduleAccent={moduleAccent}
+                  />
+                  <StatRow
+                    label="Bloc"
                     value={
                       comp?.bloc_id != null ? `Bloc #${comp.bloc_id}` : null
                     }
+                    moduleAccent={moduleAccent}
                   />
                 </div>
 
-                {/* Sanctions info from geopolitics profile */}
                 {geo?.sanctions_imposed?.length > 0 && (
                   <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg">
                     <h4 className="text-[10px] font-bold text-rose-400 uppercase tracking-widest mb-1">
@@ -565,7 +628,7 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
               </div>
             )}
 
-            {/* ── CLIMATE ──────────────────────────────────── */}
+            {/* ── CLIMATE ───────────────────────────────────────────────── */}
             {activeModule === "climate" && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-2">
@@ -576,25 +639,38 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
                         ? clim.climate_risk_score.toFixed(2)
                         : riskLabel(comp?.climate_vulnerability)
                     }
-                    icon={<Thermometer size={10} />} moduleAccent={moduleAccent}
+                    icon={<Thermometer size={10} />}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
-                    label="Vulnerability" moduleAccent={moduleAccent}
-                    value={fmtPct(comp?.overall_vulnerability)}
+                    label="Vulnerability"
+                    value={riskLabel(comp?.overall_vulnerability)}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
-                    label="Emissions" moduleAccent={moduleAccent}
+                    label="Emissions"
                     value={clim?.emissions_level ?? clim?.emissions_category}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
-                    label="Live Risk" moduleAccent={moduleAccent}
+                    label="Live Risk"
                     value={fmtPct(comp?.live_risk ?? profile?.live_risk)}
+                    moduleAccent={moduleAccent}
                   />
                   <StatRow
-                    label="Primary Vuln." moduleAccent={moduleAccent}
+                    label="Primary Vuln."
                     value={comp?.primary_vulnerability}
+                    moduleAccent={moduleAccent}
                   />
-                  <StatRow label="Avg Temp" moduleAccent={moduleAccent} value={clim?.avg_temperature != null ? `${Number(clim.avg_temperature).toFixed(1)}°C` : null} />
+                  <StatRow
+                    label="Avg Temp"
+                    value={
+                      clim?.avg_temperature != null
+                        ? `${Number(clim.avg_temperature).toFixed(1)}°C`
+                        : null
+                    }
+                    moduleAccent={moduleAccent}
+                  />
                 </div>
 
                 {topHazards.length > 0 && (
@@ -620,7 +696,7 @@ const CountryHoverCard: React.FC<CountryHoverCardProps> = ({
         )}
       </div>
 
-      {/* Bottom Action */}
+      {/* Action button */}
       <div className="p-4 border-t border-white/5">
         <motion.button
           whileHover={{ scale: 1.02 }}

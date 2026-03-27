@@ -10,7 +10,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import * as d3 from "d3";
 import Navbar from "../components/layout/Navbar";
 import Sidebar from "../components/layout/Sidebar";
-import ModuleTabs from "../components/layout/ModuleTabs";
 import HexMap from "../components/map/HexMap";
 import GlobeMap from "../components/map/GlobeMap";
 import MapToggle from "../components/map/MapToggle";
@@ -28,6 +27,7 @@ import MapSkeleton from "../components/map/MapSkeleton";
 
 import * as topojson from "topojson-client";
 import { normalizeCountryName } from "../lib/countryData";
+import { HARDCODED_RELATIONS, RelationDomain } from "../lib/hardcodedRelations";
 
 export default function Home() {
   const [activeModule, setActiveModule] = useState<ActiveModule>("overview");
@@ -42,7 +42,7 @@ export default function Home() {
   );
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [isRelationsVisible, setIsRelationsVisible] = useState(true);
+  const [isRelationsVisible, setIsRelationsVisible] = useState(false); // Default to offline
   const [globeRelations, setGlobeRelations] = useState<any[]>([]);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [countryCentroids, setCountryCentroids] = useState<
@@ -92,82 +92,105 @@ export default function Home() {
       const load = async () => {
         const moduleColor = MODULE_CONFIGS[activeModule]?.accent || "#4f46e5";
 
+        let fetchedData: any[] | null = null;
+
         if (activeModule === "overview") {
-          const data = await api.fetchInfluenceNetwork();
-          if (Array.isArray(data)) {
-            setGlobeRelations(
-              data.slice(0, 150).map((edge: any) => ({
-                fromCountry: edge.influencer,
-                toCountry: edge.influenced,
-                weight: edge.influence_score || 0.5,
-                moduleColor,
-              })),
-            );
-          }
+          fetchedData = await api.fetchInfluenceNetwork();
+        } else if (activeModule === "economy") {
+          fetchedData = await api.fetchEconomyTopTradePairs();
+        } else if (activeModule === "geopolitics") {
+          const network = await api.fetchGeopoliticsNetwork();
+          fetchedData = network?.edges || null;
+        } else if (activeModule === "defence") {
+          fetchedData = await api.fetchInfluenceNetwork();
+        } else if (activeModule === "climate") {
+          fetchedData = await api.fetchClimateGlobalConflictRisk();
+        }
+
+        // For Economy and Defence, prioritize hardcoded relations as requested
+        const isPriorityHardcoded =
+          activeModule === "economy" ||
+          activeModule === "defence" ||
+          activeModule === "climate";
+
+        const targetDomain = activeModule as RelationDomain;
+
+        const hasHardcoded =
+          HARDCODED_RELATIONS[targetDomain] &&
+          HARDCODED_RELATIONS[targetDomain].length > 0;
+
+        if (isPriorityHardcoded && hasHardcoded) {
+          console.log(
+            `Using prioritized hardcoded relations for ${activeModule}`,
+          );
+          setGlobeRelations(
+            HARDCODED_RELATIONS[targetDomain].map((rel: any) => ({
+              fromCountry: rel.fromCountry,
+              toCountry: rel.toCountry,
+              weight: rel.weight || 0.5,
+              moduleColor,
+            })),
+          );
           return;
         }
 
-        if (activeModule === "economy") {
-          const data = await api.fetchEconomyTopTradePairs();
-          if (Array.isArray(data)) {
-            setGlobeRelations(
-              data.slice(0, 150).map((edge: any) => ({
-                fromCountry: edge.country_a || edge.country1,
-                toCountry: edge.country_b || edge.country2,
-                weight: edge.normalized_weight || edge.trade_volume_normalized || 0.5,
-                moduleColor,
-              })),
-            );
-          }
+        // Use hardcoded relations as fallback if fetch fails or returns empty
+        const useHardcodedFallback =
+          !fetchedData ||
+          (Array.isArray(fetchedData) && fetchedData.length === 0);
+
+        if (useHardcodedFallback && hasHardcoded) {
+          console.log(`Using hardcoded fallback for ${activeModule}`);
+          setGlobeRelations(
+            HARDCODED_RELATIONS[activeModule].map((rel: any) => ({
+              fromCountry: rel.fromCountry,
+              toCountry: rel.toCountry,
+              weight: rel.weight || 0.5,
+              moduleColor,
+            })),
+          );
           return;
         }
 
-        if (activeModule === "geopolitics") {
-          const data = await api.fetchGeopoliticsNetwork();
-          if (data && Array.isArray(data.edges)) {
-            setGlobeRelations(
-              data.edges.slice(0, 150).map((edge: any) => ({
-                fromCountry: edge.from,
-                toCountry: edge.to,
-                weight: edge.weight || 0.5,
-                moduleColor,
-              })),
-            );
-          }
-          return;
-        }
+        if (Array.isArray(fetchedData)) {
+          setGlobeRelations(
+            fetchedData.slice(0, 150).map((edge: any) => {
+              // Handle various field names from different endpoints
+              const from =
+                edge.influencer ||
+                edge.country_a ||
+                edge.country1 ||
+                edge.source ||
+                edge.from ||
+                edge.source_country;
+              const to =
+                edge.influenced ||
+                edge.country_b ||
+                edge.country2 ||
+                edge.target ||
+                edge.to ||
+                edge.at_risk_country;
+              const weight =
+                edge.influence_score ||
+                edge.normalized_weight ||
+                edge.trade_volume_normalized ||
+                edge.weight ||
+                edge.alignment_score ||
+                edge.conflict_score ||
+                edge.risk_score ||
+                0.5;
 
-        if (activeModule === "defence") {
-          const data = await api.fetchInfluenceNetwork(); // Fallback to influence for now
-          if (Array.isArray(data)) {
-            setGlobeRelations(
-              data.slice(0, 150).map((edge: any) => ({
-                fromCountry: edge.influencer,
-                toCountry: edge.influenced,
-                weight: edge.influence_score || 0.5,
+              return {
+                fromCountry: from,
+                toCountry: to,
+                weight: weight,
                 moduleColor,
-              })),
-            );
-          }
-          return;
+              };
+            }),
+          );
+        } else {
+          setGlobeRelations([]);
         }
-
-        if (activeModule === "climate") {
-          const data = await api.fetchClimateGlobalConflictRisk();
-          if (data && Array.isArray(data)) {
-            setGlobeRelations(
-              data.slice(0, 150).map((edge: any) => ({
-                fromCountry: edge.source_country || edge.from,
-                toCountry: edge.at_risk_country || edge.to,
-                weight: edge.conflict_score || edge.risk_score || 0.5,
-                moduleColor,
-              })),
-            );
-          }
-          return;
-        }
-
-        setGlobeRelations([]);
       };
 
       load();
@@ -218,7 +241,7 @@ export default function Home() {
       <Sidebar activeModule={activeModule} />
 
       {/* Unified Relations Toggle */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto">
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-100 pointer-events-auto">
         <motion.button
           onClick={() => setIsRelationsVisible(!isRelationsVisible)}
           whileHover={{ scale: 1.05 }}
@@ -322,16 +345,6 @@ export default function Home() {
           />
         )}
       </AnimatePresence>
-
-      <div
-        className={`transition-opacity duration-300 ${activeModule === "overview" ? "opacity-60 grayscale-[0.3]" : "opacity-100"}`}
-      >
-        <ModuleTabs
-          activeModule={activeModule}
-          onModuleChange={setActiveModule}
-        />
-      </div>
-
 
       <AccessibilityPanel />
 

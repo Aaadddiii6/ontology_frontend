@@ -88,7 +88,7 @@ const Navbar: React.FC<NavbarProps> = ({ activeModule, onModuleChange }) => {
             <div className="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full border-2 border-slate-950" />
           </div>
           <div className="w-10 h-10 rounded-2xl border border-indigo-500/30 bg-indigo-500/10 flex items-center justify-center text-indigo-400 font-black text-sm hover:border-indigo-500 transition-all cursor-pointer">
-            JD
+            AB
           </div>
         </div>
       </div>

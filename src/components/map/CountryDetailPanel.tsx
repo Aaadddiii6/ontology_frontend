@@ -1,17 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  X,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  Shield,
-  Landmark,
-  Globe,
-  Thermometer,
-  ExternalLink,
-} from "lucide-react";
-import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip } from "recharts";
+import { X, ExternalLink } from "lucide-react";
+import { LineChart, Line, ResponsiveContainer, YAxis } from "recharts";
 import { AnimatedNumber } from "../ui/AnimatedNumber";
 import { CountryProfile, ActiveModule } from "../../types";
 import {
@@ -33,6 +23,44 @@ interface CountryDetailPanelProps {
   onClose: () => void;
   activeModule: ActiveModule;
 }
+
+// ─── Format helpers ───────────────────────────────────────────────────────────
+
+function fmtUSD(v: number | null | undefined): string | null {
+  if (v == null || isNaN(Number(v))) return null;
+  const n = Number(v);
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (n > 0) return `$${n.toLocaleString()}`;
+  return null;
+}
+
+function fmtPct(v: number | null | undefined, digits = 1): string | null {
+  if (v == null || isNaN(Number(v))) return null;
+  return `${(Number(v) * 100).toFixed(digits)}%`;
+}
+
+function riskLabel(v: number | null | undefined): string | null {
+  if (v == null) return null;
+  if (v > 0.75) return "Critical";
+  if (v > 0.5) return "High";
+  if (v > 0.25) return "Moderate";
+  return "Low";
+}
+
+function fmtDefenseBudget(
+  spendingMillions: number | null | undefined,
+  burdenRatio: number | null | undefined,
+): string | null {
+  if (spendingMillions != null && Number(spendingMillions) > 0)
+    return fmtUSD(Number(spendingMillions) * 1e6);
+  if (burdenRatio != null && Number(burdenRatio) > 0)
+    return `${(Number(burdenRatio) * 100).toFixed(1)}% GDP`;
+  return "Data not available";
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 const TabButton: React.FC<{
   label: string;
@@ -82,12 +110,21 @@ const DetailStat: React.FC<{
   value: React.ReactNode;
   description?: string;
 }> = ({ label, value, description }) => (
-  <div className="py-3 border-b border-gray-100 last:border-0 pl-3 border-l-2" style={{ borderLeftColor: 'rgba(99, 102, 241, 0.4)' }}>
+  <div
+    className="py-3 border-b border-gray-100 last:border-0 pl-3 border-l-2"
+    style={{ borderLeftColor: "rgba(99, 102, 241, 0.4)" }}
+  >
     <div className="text-[9px] font-black text-slate-400 uppercase tracking-[0.25em]">
       {label}
     </div>
     <div className="text-sm font-semibold text-gray-800 mt-0.5 font-mono">
-      {value ? (typeof value === 'string' || typeof value === 'number' ? <AnimatedNumber value={value} /> : value) : (
+      {value ? (
+        typeof value === "string" || typeof value === "number" ? (
+          <AnimatedNumber value={value} />
+        ) : (
+          value
+        )
+      ) : (
         <span className="text-gray-300 italic">Data not available</span>
       )}
     </div>
@@ -96,6 +133,8 @@ const DetailStat: React.FC<{
     )}
   </div>
 );
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
   country,
@@ -174,8 +213,23 @@ const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
   }, [country]);
 
   const moduleConfig = MODULE_CONFIGS[currentTab] || MODULE_CONFIGS.overview;
-
   if (!profile || !country) return null;
+
+  const comp = data?.composite;
+  const econ = data?.economy;
+  const clim = data?.climate;
+  const geo = data?.geopolitics;
+  const def = data?.defense;
+  const conf = data?.conflicts;
+
+  const gdpDisplay = fmtUSD(econ?.gdp_usd ?? comp?.gdp_usd) ?? "N/A";
+  const defBudget =
+    fmtDefenseBudget(
+      def?.spending_2023 ?? def?.spending_usd_millions,
+      profile?.defense_burden,
+    ) ?? "N/A";
+  const topPartners: string[] = econ?.top_partners?.slice(0, 5) || [];
+  const topHazards: string[] = clim?.top_hazards || [];
 
   return (
     <>
@@ -213,7 +267,7 @@ const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
           </motion.button>
         </div>
 
-        {/* Tab Switcher */}
+        {/* Tabs */}
         <div className="flex px-4 border-b border-gray-50 bg-gray-50/30 overflow-x-auto no-scrollbar">
           {(
             ["defence", "economy", "geopolitics", "climate"] as ActiveModule[]
@@ -235,13 +289,14 @@ const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
               <div className="h-4 bg-gray-100 rounded w-1/3" />
               <div className="h-32 bg-gray-50 rounded-xl" />
               <div className="space-y-3">
-                <div className="h-3 bg-gray-100 rounded" />
-                <div className="h-3 bg-gray-100 rounded" />
-                <div className="h-3 bg-gray-100 rounded w-2/3" />
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="h-3 bg-gray-100 rounded" />
+                ))}
               </div>
             </div>
           ) : (
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+              {/* ── DEFENCE ──────────────────────────────── */}
               {currentTab === "defence" && (
                 <div className="space-y-6">
                   <div>
@@ -249,47 +304,48 @@ const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
                       Defence Spending Trend
                     </h4>
                     <Sparkline
-                      data={data?.defense?.spending_history || []}
+                      data={def?.spending_history || []}
                       dataKey="amount"
                       color={MODULE_CONFIGS.defence.accent}
                     />
                   </div>
 
-                  <div>
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">
-                      Conflict Risk Matrix
-                    </h4>
-                    <div className="bg-slate-50 rounded-xl p-4 space-y-4">
-                      <DetailStat
-                        label="Conflict Status"
-                        value={
-                          (profile.conflict_risk || 0) > 0.6
-                            ? "CRITICAL"
-                            : "MODERATE"
-                        }
-                      />
-                      <DetailStat
-                        label="Fatality Index"
-                        value={
-                          data?.conflicts?.fatalities?.toLocaleString() || ""
-                        }
-                      />
-                      <DetailStat
-                        label="Event Count"
-                        value={data?.conflicts?.events ? <AnimatedNumber value={data.conflicts.events} /> : ""}
-                      />
-                    </div>
+                  <div className="bg-slate-50 rounded-xl p-4 space-y-2">
+                    <DetailStat label="Defence Budget" value={defBudget} />
+                    <DetailStat
+                      label="Military Strength"
+                      value={fmtPct(
+                        comp?.military_strength ?? profile?.military_strength,
+                      )}
+                    />
+                    <DetailStat
+                      label="Conflict Status"
+                      value={riskLabel(
+                        comp?.conflict_risk ?? profile?.conflict_risk,
+                      )}
+                    />
+                    <DetailStat
+                      label="Fatality Index"
+                      value={
+                        conf?.fatalities != null
+                          ? Number(conf.fatalities).toLocaleString()
+                          : null
+                      }
+                    />
+                    <DetailStat
+                      label="Event Count"
+                      value={conf?.events ?? null}
+                    />
                   </div>
 
-                  <div className="text-center py-10 opacity-30">
-                Data stream unavailable
-              </div>        <div className="flex flex-wrap gap-2">
-                    {profile.nuclear && (
+                  <div className="flex flex-wrap gap-2">
+                    {(comp?.nuclear_status === "confirmed" ||
+                      profile?.nuclear === "confirmed") && (
                       <span className="px-3 py-1 bg-rose-50 border border-rose-100 rounded-lg text-[10px] font-black text-rose-600 uppercase">
                         Nuclear Capability
                       </span>
                     )}
-                    {profile.p5 && (
+                    {(comp?.un_p5 || profile?.p5) && (
                       <span className="px-3 py-1 bg-indigo-50 border border-indigo-100 rounded-lg text-[10px] font-black text-indigo-600 uppercase">
                         UN P5 Security Council
                       </span>
@@ -298,87 +354,95 @@ const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
                 </div>
               )}
 
+              {/* ── ECONOMY ──────────────────────────────── */}
               {currentTab === "economy" && (
                 <div className="space-y-6">
                   <div>
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">
-                      GDP Projection
+                      GDP Trend
                     </h4>
                     <Sparkline
-                      data={data?.economy?.gdp_history || []}
+                      data={econ?.gdp_history || []}
                       dataKey="value"
                       color={MODULE_CONFIGS.economy.accent}
                     />
                   </div>
 
                   <div className="grid grid-cols-1 gap-1">
+                    {/* GDP: absolute USD, never a percentage */}
+                    <DetailStat label="GDP (Absolute)" value={gdpDisplay} />
                     <DetailStat
-                      label="Economic Risk Score"
-                      value={
-                        data?.economy?.economic_risk_score?.toFixed(2) || ""
-                      }
+                      label="Economic Risk"
+                      value={riskLabel(econ?.economic_risk_score)}
                     />
                     <DetailStat
                       label="Inflation Rate"
                       value={
-                        data?.economy?.avg_inflation
-                          ? data.economy.avg_inflation + "%"
-                          : ""
+                        econ?.avg_inflation != null
+                          ? `${Number(econ.avg_inflation).toFixed(1)}%`
+                          : null
                       }
                     />
                     <DetailStat
                       label="Global GDP Rank"
-                      value={
-                        data?.composite?.global_rank
-                          ? `#${data.composite.global_rank}`
-                          : ""
-                      }
+                      value={comp?.global_rank ? `#${comp.global_rank}` : null}
+                    />
+                    <DetailStat
+                      label="Trade Vulnerability"
+                      value={riskLabel(comp?.trade_vulnerability)}
+                    />
+                    <DetailStat
+                      label="Energy Vulnerability"
+                      value={riskLabel(comp?.energy_vulnerability)}
                     />
                   </div>
 
-                  {data?.economy?.top_partners && (
+                  {topPartners.length > 0 && (
                     <div className="pt-4">
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">
                         Top Export Partners
                       </h4>
                       <div className="space-y-2">
-                        {data.economy.top_partners
-                          .slice(0, 5)
-                          .map((p: string, i: number) => (
-                            <div
-                              key={p}
-                              className="flex items-center justify-between text-xs font-bold text-slate-600"
-                            >
-                              <span>{p}</span>
-                              <span className="text-[10px] text-slate-400 opacity-50">
-                                #{i + 1}
-                              </span>
-                            </div>
-                          ))}
+                        {topPartners.map((p, i) => (
+                          <div
+                            key={p}
+                            className="flex items-center justify-between text-xs font-bold text-slate-600"
+                          >
+                            <span>{p}</span>
+                            <span className="text-[10px] text-slate-400 opacity-50">
+                              #{i + 1}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
                 </div>
               )}
 
+              {/* ── GEOPOLITICS ──────────────────────────── */}
               {currentTab === "geopolitics" && (
                 <div className="space-y-6">
                   <div className="bg-indigo-50/50 rounded-xl p-5 border border-indigo-100">
                     <DetailStat
                       label="Political Architecture"
-                      value={data?.geopolitics?.political_system || ""}
+                      value={geo?.political_system}
                     />
                     <DetailStat
                       label="Diplomatic Influence"
-                      value={
-                        ((profile.diplomatic_centrality || 0) * 100).toFixed(
-                          1,
-                        ) + "%"
-                      }
+                      value={fmtPct(
+                        comp?.diplomatic_centrality ??
+                          profile?.diplomatic_centrality,
+                      )}
                     />
+                    <DetailStat
+                      label="Political Stability"
+                      value={fmtPct(comp?.political_stability)}
+                    />
+                    <DetailStat label="Region" value={profile?.region} />
                   </div>
 
-                  {profile.alliances && profile.alliances.length > 0 && (
+                  {profile?.alliances && profile.alliances.length > 0 && (
                     <div>
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">
                         Active Alliances
@@ -398,9 +462,23 @@ const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
                       </div>
                     </div>
                   )}
+
+                  {geo?.sanctions_imposed?.length > 0 && (
+                    <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl">
+                      <h4 className="text-[10px] font-bold text-rose-600 uppercase tracking-widest mb-1">
+                        Sanctions Imposed
+                      </h4>
+                      <p className="text-xs text-rose-700 leading-relaxed">
+                        {Array.isArray(geo.sanctions_imposed)
+                          ? geo.sanctions_imposed.slice(0, 2).join(", ")
+                          : geo.sanctions_imposed}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
+              {/* ── CLIMATE ──────────────────────────────── */}
               {currentTab === "climate" && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 gap-4">
@@ -409,7 +487,9 @@ const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
                         Risk Index
                       </div>
                       <div className="text-2xl font-black text-amber-700 mt-1">
-                        {data?.climate?.climate_risk_score?.toFixed(2)}
+                        {clim?.climate_risk_score?.toFixed(2) ??
+                          riskLabel(comp?.climate_vulnerability) ??
+                          "N/A"}
                       </div>
                     </div>
                     <div className="p-4 bg-slate-50 rounded-2xl">
@@ -417,18 +497,39 @@ const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
                         Emissions
                       </div>
                       <div className="text-sm font-black text-slate-700 mt-1">
-                        {data?.climate?.emissions_level}
+                        {clim?.emissions_level ??
+                          clim?.emissions_category ??
+                          "N/A"}
                       </div>
                     </div>
                   </div>
 
-                  {data?.climate?.top_hazards && (
+                  <div className="grid grid-cols-1 gap-1">
+                    <DetailStat
+                      label="Overall Vulnerability"
+                      value={riskLabel(comp?.overall_vulnerability)}
+                    />
+                    <DetailStat
+                      label="Avg Temperature"
+                      value={
+                        clim?.avg_temperature != null
+                          ? `${Number(clim.avg_temperature).toFixed(1)}°C`
+                          : null
+                      }
+                    />
+                    <DetailStat
+                      label="Live Risk Score"
+                      value={fmtPct(comp?.live_risk ?? profile?.live_risk)}
+                    />
+                  </div>
+
+                  {topHazards.length > 0 && (
                     <div>
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">
                         Hazard Profile
                       </h4>
                       <div className="flex flex-wrap gap-2">
-                        {data.climate.top_hazards.map((h: string) => (
+                        {topHazards.map((h) => (
                           <span
                             key={h}
                             className="px-3 py-1 bg-white border border-gray-200 rounded-lg text-[10px] font-bold text-slate-600 uppercase"
@@ -445,7 +546,7 @@ const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
           )}
         </div>
 
-        {/* Action Button */}
+        {/* Action */}
         <div className="p-6 border-t border-gray-100">
           <button className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2 group">
             Intelligence Protocol Active

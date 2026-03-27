@@ -31,7 +31,9 @@ const RelationsLayer: React.FC<RelationsLayerProps> = ({
   const projection = useMemo(() => {
     if (dimensions.width <= 0 || dimensions.height <= 0) return null;
     const proj = d3.geoNaturalEarth1();
-    proj.fitSize([dimensions.width, dimensions.height], { type: "Sphere" } as any);
+    proj.fitSize([dimensions.width, dimensions.height], {
+      type: "Sphere",
+    } as any);
     const [tx, ty] = proj.translate();
     proj.translate([tx, ty + 40]); // ← same +40 offset as HexMap
     return proj;
@@ -76,21 +78,37 @@ const RelationsLayer: React.FC<RelationsLayerProps> = ({
   const countryDots = useMemo(() => {
     const dots: { name: string; geo: [number, number]; score: number }[] = [];
     // Use the centroid map if available (most accurate), else static
-    const source: Map<string, [number, number]> | Record<string, [number, number]> =
+    const source:
+      | Map<string, [number, number]>
+      | Record<string, [number, number]> =
       countryCoords && countryCoords.size > 0 ? countryCoords : COUNTRY_COORDS;
 
-    const entries = source instanceof Map ? [...source.entries()] : Object.entries(source);
+    const entries =
+      source instanceof Map ? [...source.entries()] : Object.entries(source);
 
     entries.forEach(([name, geo]) => {
       const profile = profileMap.get(name);
       const score = (() => {
         if (!profile) return 0.3;
         switch (activeModule) {
-          case "defence": return profile.military_strength ?? 0.3;
-          case "economy": return (profile.arms_export ?? 0) + (profile.defense_spending ?? 0);
-          case "geopolitics": return profile.diplomatic_centrality ?? 0.3;
-          case "climate": return (profile.live_risk ?? 0) * 0.7 + (profile.conflict_risk ?? 0) * 0.3;
-          default: return profile.defense_composite ?? 0.3;
+          case "defence":
+            return profile.military_strength ?? 0.3;
+          case "economy":
+            // Normalize defense_spending (in millions USD) to a 0-1 score
+            const spendingScore = (profile.defense_spending || 0) / 1000000;
+            return Math.min(
+              1,
+              (profile.arms_export ?? 0) * 0.5 + spendingScore * 0.5,
+            );
+          case "geopolitics":
+            return profile.diplomatic_centrality ?? 0.3;
+          case "climate":
+            return (
+              (profile.live_risk ?? 0) * 0.7 +
+              (profile.conflict_risk ?? 0) * 0.3
+            );
+          default:
+            return profile.defense_composite ?? 0.3;
         }
       })();
       dots.push({ name, geo: geo as [number, number], score });
@@ -115,11 +133,23 @@ const RelationsLayer: React.FC<RelationsLayerProps> = ({
             preserveAspectRatio="none"
           >
             <defs>
-              <filter id="arc-glow" x="-20%" y="-20%" width="140%" height="140%">
+              <filter
+                id="arc-glow"
+                x="-20%"
+                y="-20%"
+                width="140%"
+                height="140%"
+              >
                 <feGaussianBlur stdDeviation="2" result="blur" />
                 <feComposite in="SourceGraphic" in2="blur" operator="over" />
               </filter>
-              <filter id="dot-glow" x="-50%" y="-50%" width="200%" height="200%">
+              <filter
+                id="dot-glow"
+                x="-50%"
+                y="-50%"
+                width="200%"
+                height="200%"
+              >
                 <feGaussianBlur stdDeviation="3" result="blur" />
                 <feComposite in="SourceGraphic" in2="blur" operator="over" />
               </filter>
@@ -139,7 +169,12 @@ const RelationsLayer: React.FC<RelationsLayerProps> = ({
               const cy = (s.y + e.y) / 2 - dr * 0.18;
               const path = `M ${s.x} ${s.y} Q ${cx} ${cy} ${e.x} ${e.y}`;
               const w = Math.max(0.5, (rel.weight ?? 0.5) * 2.5);
-              const col = rel.moduleColor ?? moduleConfig.accent;
+
+              // Use light green for economy lines to make them visible
+              const col =
+                activeModule === "economy"
+                  ? "#a7f3d0"
+                  : (rel.moduleColor ?? moduleConfig.accent);
 
               return (
                 <g key={i}>
@@ -169,7 +204,11 @@ const RelationsLayer: React.FC<RelationsLayerProps> = ({
                     strokeOpacity={0.6}
                     strokeDasharray="6 14"
                     animate={{ strokeDashoffset: [0, -40] }}
-                    transition={{ duration: 2.5, repeat: Infinity, ease: "linear" }}
+                    transition={{
+                      duration: 2.5,
+                      repeat: Infinity,
+                      ease: "linear",
+                    }}
                   />
                 </g>
               );
@@ -238,7 +277,8 @@ const RelationsLayer: React.FC<RelationsLayerProps> = ({
                         fontFamily="monospace"
                         className="select-none uppercase"
                       >
-                        {name.split(",")[0].substring(0, 20)} — {(score * 100).toFixed(0)}%
+                        {name.split(",")[0].substring(0, 20)} —{" "}
+                        {(score * 100).toFixed(0)}%
                       </text>
                     </g>
                   )}

@@ -4,7 +4,11 @@ import * as THREE from "three";
 import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { CountryProfile, ActiveModule, RelationEdge } from "../../types";
-import { normalizeCountryName, getModuleColor, COUNTRY_COORDS } from "../../lib/countryData";
+import {
+  normalizeCountryName,
+  getModuleColor,
+  COUNTRY_COORDS,
+} from "../../lib/countryData";
 
 interface GlobeMapProps {
   profileMap: Map<string, CountryProfile>;
@@ -18,7 +22,11 @@ interface GlobeMapProps {
   simulationResults?: Record<string, "critical" | "high" | "medium" | "low">;
 }
 
-const geoCoordsTo3d = (lon: number, lat: number, radius: number): THREE.Vector3 => {
+const geoCoordsTo3d = (
+  lon: number,
+  lat: number,
+  radius: number,
+): THREE.Vector3 => {
   const phi = (90 - lat) * (Math.PI / 180);
   const theta = (lon + 180) * (Math.PI / 180);
   return new THREE.Vector3(
@@ -58,7 +66,9 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
   const visibleRef = useRef(visible);
   const worldLoadedRef = useRef(false);
 
-  useEffect(() => { visibleRef.current = visible; }, [visible]);
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
 
   // ── Helpers ───────────────────────────────────────────────
   const getGeoCoords = useCallback(
@@ -135,26 +145,28 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
 
     // ── Globe base
     const globeBase = new THREE.Mesh(
-      new THREE.SphereGeometry(100, 64, 64),
+      new THREE.SphereGeometry(100, 128, 128),
       new THREE.MeshStandardMaterial({
         color: 0x0d1b2e,
         roughness: 0.4,
         metalness: 0.6,
         transparent: true,
         opacity: 0.97,
+        depthWrite: false, // Allow polygons to render "through" if needed
       }),
     );
     globeGroupRef.current.add(globeBase);
 
     // ── Subtle ocean shimmer
     const ocean = new THREE.Mesh(
-      new THREE.SphereGeometry(99.5, 64, 64),
+      new THREE.SphereGeometry(99, 128, 128),
       new THREE.MeshStandardMaterial({
         color: 0x1a3a5c,
         roughness: 0.1,
         metalness: 0.9,
         transparent: true,
         opacity: 0.6,
+        depthWrite: false,
       }),
     );
     globeGroupRef.current.add(ocean);
@@ -173,7 +185,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
 
     // ── Grid lines
     const grid = new THREE.Mesh(
-      new THREE.SphereGeometry(100.3, 36, 36),
+      new THREE.SphereGeometry(100.5, 36, 36),
       new THREE.MeshBasicMaterial({
         color: 0x334466,
         wireframe: true,
@@ -220,7 +232,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
             if (i === 0) shape.moveTo(lon, lat);
             else shape.lineTo(lon, lat);
           });
-          
+
           const shapeGeo = new THREE.ShapeGeometry(shape);
           const pos = shapeGeo.attributes.position;
           const normals = new Float32Array(pos.count * 3);
@@ -228,7 +240,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
           for (let i = 0; i < pos.count; i++) {
             const lon = pos.getX(i);
             const lat = pos.getY(i);
-            const v = geoCoordsTo3d(lon, lat, 101.5); // Offset radius greatly to prevent z-fighting flat polygons
+            const v = geoCoordsTo3d(lon, lat, 102.2); // Increased offset to prevent z-fighting and sphere penetration
             pos.setXYZ(i, v.x, v.y, v.z);
 
             const n = v.clone().normalize();
@@ -236,25 +248,31 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
             normals[i * 3 + 1] = n.y;
             normals[i * 3 + 2] = n.z;
           }
-          shapeGeo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+          shapeGeo.setAttribute(
+            "normal",
+            new THREE.BufferAttribute(normals, 3),
+          );
 
           const shapeMesh = new THREE.Mesh(
             shapeGeo,
             new THREE.MeshStandardMaterial({
               color: baseHex,
               emissive: baseHex,
-              emissiveIntensity: 0.3,
+              emissiveIntensity: 0.4,
               transparent: true,
-              opacity: 0.4,
-              side: THREE.DoubleSide,
+              opacity: 0.75, // Increased opacity for better coverage
+              side: THREE.FrontSide,
+              polygonOffset: true,
+              polygonOffsetFactor: -1,
+              polygonOffsetUnits: -1,
             }),
           );
           shapeMesh.userData = { apiName, isCountry: true, isShape: true };
           countryMeshesRef.current.add(shapeMesh);
 
           // Outline
-          const pts = ring.map(([lon, lat]: number[]) =>
-            geoCoordsTo3d(lon, lat, 101.6),
+          const pts = ring.map(
+            ([lon, lat]: number[]) => geoCoordsTo3d(lon, lat, 102.3), // Slightly above the shape
           );
           const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
           const line = new THREE.Line(
@@ -285,7 +303,12 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
             }),
           );
           dot.position.copy(pos);
-          dot.userData = { apiName, isCountry: true, isDot: true, baseScale: 1 };
+          dot.userData = {
+            apiName,
+            isCountry: true,
+            isDot: true,
+            baseScale: 1,
+          };
           countryMeshesRef.current.add(dot);
         }
       });
@@ -298,13 +321,16 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
       if (!isDragging.current) {
         globeGroupRef.current.rotation.y += 0.0008;
       }
-      
+
       const time = Date.now() * 0.005;
       countryMeshesRef.current.children.forEach((obj) => {
         if (obj.userData?.isDot && obj.userData?.severity) {
           const mul = 1 + Math.sin(time + obj.id) * 0.4; // random offset by id
           obj.scale.setScalar(obj.userData.baseScale * mul);
-        } else if (obj.userData?.isDot && obj.scale.x !== obj.userData.baseScale) {
+        } else if (
+          obj.userData?.isDot &&
+          obj.scale.x !== obj.userData.baseScale
+        ) {
           obj.scale.setScalar(obj.userData.baseScale); // restore scale when severity removed
         }
       });
@@ -318,7 +344,10 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
       if (!container || !cameraRef.current || !rendererRef.current) return;
       cameraRef.current.aspect = container.clientWidth / container.clientHeight;
       cameraRef.current.updateProjectionMatrix();
-      rendererRef.current.setSize(container.clientWidth, container.clientHeight);
+      rendererRef.current.setSize(
+        container.clientWidth,
+        container.clientHeight,
+      );
     };
     const ro = new ResizeObserver(onResize);
     ro.observe(container);
@@ -360,7 +389,10 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
       raycaster.params.Line = { threshold: 2 };
       raycaster.setFromCamera(new THREE.Vector2(mx, my), cameraRef.current);
 
-      const hits = raycaster.intersectObjects(countryMeshesRef.current.children, false);
+      const hits = raycaster.intersectObjects(
+        countryMeshesRef.current.children,
+        false,
+      );
       const hit = hits.find((h) => h.object.userData?.isCountry);
 
       if (hit) {
@@ -371,7 +403,10 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
           // Highlight
           countryMeshesRef.current.children.forEach((obj) => {
             const isThis = obj.userData.apiName === name;
-            if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+            if (
+              obj instanceof THREE.Mesh &&
+              obj.material instanceof THREE.MeshStandardMaterial
+            ) {
               if (obj.userData.isShape) {
                 obj.material.opacity = isThis ? 0.7 : 0.4;
                 obj.material.emissiveIntensity = isThis ? 0.8 : 0.3;
@@ -381,7 +416,10 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
                 else obj.scale.setScalar(1);
               }
             }
-            if (obj instanceof THREE.Line && obj.material instanceof THREE.LineBasicMaterial) {
+            if (
+              obj instanceof THREE.Line &&
+              obj.material instanceof THREE.LineBasicMaterial
+            ) {
               obj.material.opacity = isThis ? 0.8 : 0.15;
               if (isThis) obj.material.color.set(0x6366f1);
               else obj.material.color.set(0xffffff);
@@ -392,7 +430,10 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
         lastHovered.current = null;
         onCountryHover(null);
         countryMeshesRef.current.children.forEach((obj) => {
-          if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+          if (
+            obj instanceof THREE.Mesh &&
+            obj.material instanceof THREE.MeshStandardMaterial
+          ) {
             if (obj.userData.isShape) {
               obj.material.opacity = 0.4;
               obj.material.emissiveIntensity = 0.3;
@@ -401,7 +442,10 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
               obj.scale.setScalar(1);
             }
           }
-          if (obj instanceof THREE.Line && obj.material instanceof THREE.LineBasicMaterial) {
+          if (
+            obj instanceof THREE.Line &&
+            obj.material instanceof THREE.LineBasicMaterial
+          ) {
             obj.material.opacity = 0.15;
             obj.material.color.set(0xffffff);
           }
@@ -446,8 +490,10 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
       const apiName: string = obj.userData.apiName;
       let colorHex = colorForCountry(apiName);
       if (colorHex && colorHex.length > 7) colorHex = colorHex.substring(0, 7);
-      
-      const severity = simulationResults ? simulationResults[apiName] : undefined;
+
+      const severity = simulationResults
+        ? simulationResults[apiName]
+        : undefined;
       if (severity === "critical") colorHex = "#ef4444";
       else if (severity === "high") colorHex = "#f97316";
       else if (severity === "medium") colorHex = "#f59e0b";
@@ -455,18 +501,36 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
 
       if (obj.userData.isDot) obj.userData.severity = severity;
 
-      if (obj instanceof THREE.Mesh && obj.material instanceof THREE.MeshStandardMaterial) {
+      if (
+        obj instanceof THREE.Mesh &&
+        obj.material instanceof THREE.MeshStandardMaterial
+      ) {
         obj.material.color.set(colorHex);
         obj.material.emissive.set(colorHex);
         // Boost glow if it's severe
         if (obj.userData.isShape) {
-          obj.material.opacity = severity ? 0.7 : (obj.userData.apiName === lastHovered.current ? 0.7 : 0.4);
-          obj.material.emissiveIntensity = severity ? 0.8 : (obj.userData.apiName === lastHovered.current ? 0.8 : 0.3);
+          obj.material.opacity = severity
+            ? 0.7
+            : obj.userData.apiName === lastHovered.current
+              ? 0.7
+              : 0.4;
+          obj.material.emissiveIntensity = severity
+            ? 0.8
+            : obj.userData.apiName === lastHovered.current
+              ? 0.8
+              : 0.3;
         } else {
-          obj.material.emissiveIntensity = severity ? 1.5 : (obj.userData.apiName === lastHovered.current ? 1.2 : 0.4);
+          obj.material.emissiveIntensity = severity
+            ? 1.5
+            : obj.userData.apiName === lastHovered.current
+              ? 1.2
+              : 0.4;
         }
       }
-      if (obj instanceof THREE.Line && obj.material instanceof THREE.LineBasicMaterial) {
+      if (
+        obj instanceof THREE.Line &&
+        obj.material instanceof THREE.LineBasicMaterial
+      ) {
         obj.material.color.set(severity ? colorHex : 0xffffff);
         obj.material.opacity = severity ? 0.8 : 0.3;
       }

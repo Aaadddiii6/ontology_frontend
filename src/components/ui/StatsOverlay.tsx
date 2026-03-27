@@ -66,7 +66,9 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
         const total = coverage?.total_countries ?? profileMap.size ?? 261;
         const stability =
           total > 0 ? ((coverage?.has_global_risk ?? 0) / total) * 100 : 0;
-        const riskArray = Array.isArray(riskRanking) ? riskRanking : riskRanking?.data;
+        const riskArray = Array.isArray(riskRanking)
+          ? riskRanking
+          : riskRanking?.data;
         const threats = Array.isArray(riskArray)
           ? riskArray.filter((c: any) => (c.global_risk ?? 0) > 0.45).length
           : 0;
@@ -101,10 +103,14 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
         const nuclearCount = profiles.filter(
           (p) => p.nuclear === "confirmed",
         ).length;
+        // Force count to 9 as per user database update
+        const displayNuclearCount = Math.max(nuclearCount, 9);
         // Conflict count based on conflict_risk > 0.4 (as per user's neo4j query)
         const conflictCount = profiles.filter(
           (p) => (p.conflict_risk || 0) > 0.4,
         ).length;
+
+        const displayConflictCount = conflictCount > 0 ? conflictCount : 32;
 
         if (defenseData) {
           const formatUSD = (val: number) => {
@@ -121,18 +127,20 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
               icon: "🛡",
             },
             {
-              label: "Arms Export Market",
-              value: (defenseData.total_arms_export_market_share || 0).toFixed(1) + "%",
+              label: "Arms Trade Volume (TIV)",
+              value: (
+                defenseData.total_arms_export_market_share || 0
+              ).toLocaleString(),
               icon: "🚀",
             },
             {
               label: "Nuclear Countries",
-              value: nuclearCount || 9, // Fallback to 9 if data is missing
+              value: displayNuclearCount,
               icon: "☢",
             },
             {
               label: "Active Conflicts",
-              value: conflictCount || 32, // Fallback to 32 if data is missing
+              value: displayConflictCount,
               icon: "⚔",
             },
           ]);
@@ -143,10 +151,10 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
           ).length;
 
           setStats([
-            { label: "Nuclear States", value: nuclearCount || 9, icon: "☢" },
+            { label: "Nuclear States", value: displayNuclearCount, icon: "☢" },
             {
               label: "Active Conflicts",
-              value: conflictCount || 32,
+              value: displayConflictCount,
               icon: "⚔",
             },
             { label: "Arms Exporters", value: exporters, icon: "🚀" },
@@ -159,38 +167,67 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
           fetchEconomyTradeVulnerabilityRanking(),
         ]);
 
-        const influenceArray = Array.isArray(influence) ? influence : (influence?.data || []);
-        const tradePairsArray = Array.isArray(tradePairs) ? tradePairs : (tradePairs?.data || []);
-        const tradeVulnArray = Array.isArray(tradeVuln) ? tradeVuln : (tradeVuln?.data || []);
+        const influenceArray = Array.isArray(influence)
+          ? influence
+          : influence?.data || [];
+        const tradePairsArray = Array.isArray(tradePairs)
+          ? tradePairs
+          : tradePairs?.data || [];
+        const tradeVulnArray = Array.isArray(tradeVuln)
+          ? tradeVuln
+          : tradeVuln?.data || [];
 
         const topTrader = influenceArray?.[0]?.country || "USA";
         const totalPairs = tradePairsArray?.length || 0;
         const highDeps = tradeVulnArray?.length || 0;
+        const marketInfluence =
+          influenceArray?.[0]?.economic_influence ??
+          influenceArray?.[0]?.strategic_influence ??
+          0;
 
         setStats([
           { label: "Top Trader", value: topTrader, icon: "💰" },
           { label: "High Dependencies", value: highDeps, icon: "🔗" },
           { label: "Registered Trade Pairs", value: totalPairs, icon: "🤝" },
-          { label: "Market Influence", value: influenceArray?.length ? `${(influenceArray[0]?.strategic_influence * 100).toFixed(0)}%` : "N/A", icon: "🌐" },
+          {
+            label: "Market Influence",
+            value: `${(marketInfluence * 100).toFixed(0)}%`,
+            icon: "🌐",
+          },
         ]);
       } else if (activeModule === "geopolitics") {
         const [centrality, network] = await Promise.all([
           fetchGeopoliticsCentralityRanking(),
-          fetchGeopoliticsNetwork()
+          fetchGeopoliticsNetwork(),
         ]);
-        
-        const centralityArray = Array.isArray(centrality) ? centrality : (centrality?.data || []);
-        const networkNodes = Array.isArray(network) ? network : (network?.nodes || network?.data || []);
-        const networkEdges = network?.edges || (Array.isArray(network) ? network : []);
-        
+
+        const centralityArray = Array.isArray(centrality)
+          ? centrality
+          : centrality?.data || [];
+        const networkNodes = Array.isArray(network)
+          ? network
+          : network?.nodes || network?.data || [];
+        const networkEdges =
+          network?.edges || (Array.isArray(network) ? network : []);
+
         const topCentral = centralityArray?.[0]?.country || "N/A";
         const tiesCount = networkEdges?.length || 0;
 
         setStats([
           { label: "Top Central Node", value: topCentral, icon: "🏛" },
           { label: "Diplomatic Ties", value: tiesCount, icon: "🌐" },
-          { label: "Network Density", value: network?.density ? `${(network.density * 100).toFixed(1)}%` : "N/A", icon: "🔗" },
-          { label: "Active Actors", value: networkNodes?.length || 0, icon: "👥" },
+          {
+            label: "Network Density",
+            value: network?.density
+              ? `${(network.density * 100).toFixed(1)}%`
+              : "N/A",
+            icon: "🔗",
+          },
+          {
+            label: "Active Actors",
+            value: networkNodes?.length || 0,
+            icon: "👥",
+          },
         ]);
       } else if (activeModule === "climate") {
         setStats([
