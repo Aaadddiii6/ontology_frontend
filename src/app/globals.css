@@ -273,7 +273,7 @@ body.night-mode .countries { filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.35
   mask-image: linear-gradient(to top, #000 35%, rgba(0,0,0,0.6) 60%, transparent 100%);
   background-image: url("/assets/sidebar-dark.webp");
   background-position: center bottom;
-  background-size: 100% auto;
+  background-size: cover; /* fills the fade area at 72px and 200px widths, so the fade reaches the image top */
   background-repeat: no-repeat;
 }
 body.day-mode .bo-sidebar-art { background-image: url("/assets/sidebar-light.webp"); }

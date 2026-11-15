@@ -196,7 +196,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
 
     // ── Clouds: separate transparent shell that drifts slowly (subtle).
     const clouds = new THREE.Mesh(
-      new THREE.SphereGeometry(101.4, 64, 64),
+      new THREE.SphereGeometry(100.9, 64, 64),
       new THREE.MeshLambertMaterial({
         map: tex("/textures/earth_clouds_1024.png", true),
         transparent: true,
@@ -279,7 +279,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
           for (let i = 0; i < pos.count; i++) {
             const lon = pos.getX(i);
             const lat = pos.getY(i);
-            const v = geoCoordsTo3d(lon, lat, 102.2); // Increased offset to prevent z-fighting and sphere penetration
+            const v = geoCoordsTo3d(lon, lat, 100.3); // Increased offset to prevent z-fighting and sphere penetration
             pos.setXYZ(i, v.x, v.y, v.z);
 
             const n = v.clone().normalize();
@@ -312,7 +312,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
 
           // Outline
           const pts = ring.map(
-            ([lon, lat]: number[]) => geoCoordsTo3d(lon, lat, 102.3), // Slightly above the shape
+            ([lon, lat]: number[]) => geoCoordsTo3d(lon, lat, 100.35), // Slightly above the shape
           );
           const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
           const line = new THREE.Line(
@@ -330,7 +330,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
         // Dot at centroid (all modules)
         const centroid = d3.geoCentroid(feature);
         if (centroid && centroid[0] != null && centroid[1] != null) {
-          const pos = geoCoordsTo3d(centroid[0], centroid[1], 102.5);
+          const pos = geoCoordsTo3d(centroid[0], centroid[1], 100.8);
           const size = 1.2 + (profile?.defense_composite ?? 0) * 2.5;
           const dot = new THREE.Mesh(
             new THREE.SphereGeometry(Math.min(size, 3.5), 8, 8),
@@ -627,8 +627,8 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
       const ec = (rel.toIso && isoCoords?.get(rel.toIso)) || getGeoCoords(rel.toCountry);
       if (!sc || !ec) return;
 
-      const start = geoCoordsTo3d(sc[0], sc[1], 102.5);
-      const end = geoCoordsTo3d(ec[0], ec[1], 102.5);
+      const start = geoCoordsTo3d(sc[0], sc[1], 100.6);
+      const end = geoCoordsTo3d(ec[0], ec[1], 100.6);
       const lift = 104 + Math.min(30, start.distanceTo(end) * 0.12);
       const mid = start.clone().lerp(end, 0.5).normalize().multiplyScalar(lift);
       const curve = new THREE.QuadraticBezierCurve3(start, mid, end);

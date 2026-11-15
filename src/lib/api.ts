@@ -758,6 +758,8 @@ export interface CountryProfileFull {
   disasters: { rel: string; kind: string; name: string | null; year: number | null }[];
   connections: { type: string; n: number }[];
   risk_rank: { rank: number; of: number } | null;
+  arms_suppliers?: { country: string; value: number; weapons: string[] }[];
+  arms_recipients?: { country: string; value: number; weapons: string[] }[];
 }
 
 export async function fetchCountryProfile(country: string): Promise<CountryProfileFull | null> {

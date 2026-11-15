@@ -53,6 +53,7 @@ export interface SimulationUI {
   parsedBy: string | null;
   narrativeBy: string | null;
   globalRiskDelta: number | null;
+  parts: { scenario_type: string; actor: string | null; target: string | null; countries: number; missing_data: string[] }[];
 }
 
 export interface SimulationError {
@@ -104,6 +105,7 @@ function normalise(data: any): SimulationUI {
     parsedBy: parsed.parsed_by ?? null,
     narrativeBy: result.narrative_by ?? null,
     globalRiskDelta: typeof result.global_risk_delta === "number" ? result.global_risk_delta : null,
+    parts: Array.isArray(result.parts) ? result.parts : [],
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

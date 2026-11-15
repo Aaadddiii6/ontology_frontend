@@ -147,6 +147,24 @@ export default function SimulationResults({ r }: { r: SimulationUI }) {
           )}
         </div>
         <h3 className="text-xl font-black bo-ink leading-tight">{r.headline}</h3>
+        {r.parts.length > 1 && (
+          <div className="mt-3 rounded-xl bo-card p-3">
+            <div className="text-[10px] font-black uppercase tracking-widest bo-faint mb-2">
+              Compound question: {r.parts.length} scenarios combined
+            </div>
+            <ol className="space-y-1">
+              {r.parts.map((p, i) => (
+                <li key={i} className="text-[12px] bo-sub flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-indigo-500 text-white text-[10px] font-bold flex items-center justify-center">{i + 1}</span>
+                  <span className="font-semibold capitalize">{p.scenario_type.replace(/_/g, " ")}</span>
+                  <span className="bo-faint">{[p.actor, p.target].filter(Boolean).join(" → ")}</span>
+                  <span className="ml-auto bo-faint">{p.countries} countries</span>
+                </li>
+              ))}
+            </ol>
+            <p className="text-[10px] bo-faint mt-2">Effects on the same country are added together; severity is the worst of the parts.</p>
+          </div>
+        )}
         {(r.actor || r.target) && (
           <p className="text-xs bo-faint mt-1">
             {r.actor ?? "—"} → {r.target ?? "—"}

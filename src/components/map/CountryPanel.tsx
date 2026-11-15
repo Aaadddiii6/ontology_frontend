@@ -329,6 +329,24 @@ export default function CountryPanel({
               <Section title="Conflict fatalities per year" view={lineView(`${country}: conflict fatalities`, "ACLED", "Fatalities", "number", (data.conflict ?? []).map((c) => ({ year: c.year, value: c.fatalities })))}>
                 <Spark data={(data.conflict ?? []).map((c) => ({ year: c.year, value: c.fatalities }))} color={color} />
               </Section>
+              <Section
+                title="Main arms suppliers (SIPRI, 10 years)"
+                view={barView(`${country}: major-arms suppliers`, "SIPRI Arms Transfers Database", "SIPRI TIV", "number", (data.arms_suppliers ?? []).map((r) => ({ name: r.country, value: r.value })))}
+              >
+                <BarList
+                  rows={(data.arms_suppliers ?? []).map((r) => ({ name: r.country, value: r.value, note: r.weapons?.[0] ? `· ${r.weapons[0].split(" (")[0]}` : undefined }))}
+                  color={color}
+                  fmt={(v) => `${num(v)} TIV`}
+                />
+              </Section>
+              {(data.arms_recipients ?? []).length > 0 && (
+                <Section
+                  title="Main arms customers (SIPRI, 10 years)"
+                  view={barView(`${country}: major-arms customers`, "SIPRI Arms Transfers Database", "SIPRI TIV", "number", (data.arms_recipients ?? []).map((r) => ({ name: r.country, value: r.value })))}
+                >
+                  <BarList rows={(data.arms_recipients ?? []).map((r) => ({ name: r.country, value: r.value }))} color="#f97316" fmt={(v) => `${num(v)} TIV`} />
+                </Section>
+              )}
               <Section title="Arms exports (SIPRI TIV)" view={lineView(`${country}: arms exports`, "SIPRI Arms Transfers (TIV)", "SIPRI TIV (millions)", "number", data.arms_exports)}>
                 <Spark data={data.arms_exports} color={color} />
                 {!data.arms_exports?.length && <p className="text-[11px] text-slate-500">Not a recorded arms exporter.</p>}
