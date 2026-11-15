@@ -29,6 +29,11 @@ const Sidebar: React.FC<SidebarProps> = () => {
         className="absolute inset-x-0 bottom-0 h-[50%] bo-sidebar-art opacity-95 pointer-events-none"
         // mask set inline: the CSS pipeline drops mask-image from stylesheets
         style={{
+          // cover: the image always fills the whole fade area, at 72px and 200px widths.
+          // (At 100% width it was only ~186px tall at 72px, so its own top edge showed
+          // halfway up the fade as a hard line.)
+          backgroundSize: "cover",
+          backgroundPosition: "center bottom",
           maskImage: "linear-gradient(to top, #000 0%, #000 30%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0.15) 78%, transparent 100%)",
           WebkitMaskImage: "linear-gradient(to top, #000 0%, #000 30%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0.15) 78%, transparent 100%)",
         }}
