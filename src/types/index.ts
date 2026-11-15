@@ -19,6 +19,15 @@ export interface CountryProfile {
   region?: string | null;
   conflict_trend?: "increasing" | "decreasing" | "stable" | null;
   bloc?: number | null;
+  // From /graph/profiles (real stored scores, 0-1)
+  iso?: string | null;
+  global_risk?: number;
+  strategic_influence?: number;
+  vulnerability?: number;
+  economic_influence?: number;
+  trade_vulnerability?: number;
+  energy_vulnerability?: number;
+  climate_risk?: number;
 }
 
 export interface ProfilesResponse {
@@ -41,6 +50,11 @@ export interface RelationEdge {
   toCountry: string;
   weight: number; // 0-1
   moduleColor: string; // hex colour string
+  // Set when the edge comes from /graph/relations:
+  fromIso?: string | null; // ISO numeric, matches map feature ids
+  toIso?: string | null;
+  label?: string; // human-readable, with the real value
+  layer?: string;
 }
 
 export interface HoverPosition {

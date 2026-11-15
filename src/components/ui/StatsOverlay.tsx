@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from "react";
+import { Globe2, Share2, Layers, AlertTriangle, Shield, BarChart3 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ActiveModule, CountryProfile } from "../../types";
 import {
-  fetchCoverageStats,
+
+  fetchHealth,
+  fetchInsights,
   fetchGlobalRiskRanking,
   fetchEconomyInfluenceRanking,
   fetchDefenseGlobalTotals,
@@ -33,6 +36,7 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
   const [isDayMode, setIsDayMode] = useState(false);
   const [stats, setStats] = useState<StatItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [builtAt, setBuiltAt] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
@@ -51,52 +55,56 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
   const refreshData = async () => {
     try {
       if (activeModule === "overview") {
-        const [coverage, riskRanking, tradePairs] = await Promise.all([
-          fetchCoverageStats(),
+        const [health, riskRanking, tradePairs] = await Promise.all([
+          fetchHealth(),
           fetchGlobalRiskRanking(),
           fetchEconomyTopTradePairs(),
         ]);
 
-        if (!coverage && !riskRanking && !tradePairs) {
-          setIsOffline(true);
-        } else {
-          setIsOffline(false);
-        }
+        setIsOffline(!health && !riskRanking && !tradePairs);
 
-        const total = coverage?.total_countries ?? profileMap.size ?? 261;
-        const stability =
-          total > 0 ? ((coverage?.has_global_risk ?? 0) / total) * 100 : 0;
-        const riskArray = Array.isArray(riskRanking)
-          ? riskRanking
-          : riskRanking?.data;
-        const threats = Array.isArray(riskArray)
-          ? riskArray.filter((c: any) => (c.global_risk ?? 0) > 0.45).length
-          : 0;
-        const nodes = coverage?.has_influence ?? coverage?.has_global_risk ?? 0;
-        const totalPairs = (tradePairs || []).length;
+        const graph = health?.graph;
+        // High risk across every scored country (not just a top-30 list)
+        const scoredProfiles = Array.from(profileMap.values()).filter((p) => typeof p.global_risk === "number");
+        const scored = scoredProfiles.length;
+        const highRisk = scoredProfiles.filter((p) => (p.global_risk ?? 0) > 0.45).length;
+        const domains = graph ? Object.entries(graph.domains) : [];
+        const loadedDomains = domains.filter(([, d]) => d.loaded).length;
+        setBuiltAt(health?.built_at ?? null);
+        void riskRanking;
+        void tradePairs;
 
+        // Every tile is a count straight from the graph. No invented trend
+        // deltas: the graph stores no history of these counts to compare to.
         setStats([
           {
-            label: "Global Stability",
-            value: `${stability.toFixed(1)}%`,
-            delta: "+1.2%",
+            label: "Countries in graph",
+            value: (graph?.countries ?? 0).toLocaleString(),
             icon: "🌐",
           },
-          { label: "Active Threats", value: threats, delta: "-3", icon: "⚔" },
           {
-            label: "Intelligence Nodes",
-            value: (nodes || 0).toLocaleString(),
-            delta: "+42",
+            label: "Graph relationships",
+            value: (graph?.total_relationships ?? 0).toLocaleString(),
             icon: "📊",
           },
           {
-            label: "Trade Pairs Built",
-            value: (totalPairs || 0).toLocaleString(),
-            icon: "⚡",
+            label: "Domains active",
+            value: domains.length ? `${loadedDomains} / ${domains.length}` : "—",
+            icon: "🧩",
+          },
+          {
+            label: scored ? `High-risk countries (risk > 0.45, of ${scored})` : "High-risk countries",
+            value: scored ? highRisk : "—",
+            icon: "⚠",
           },
         ]);
       } else if (activeModule === "defence") {
-        const defenseData = await fetchDefenseGlobalTotals();
+        const [defenseData, defenceCards] = await Promise.all([fetchDefenseGlobalTotals(), fetchInsights("defence")]);
+        // Arms trade value, latest year (customs data via /graph/insights)
+        const armsSeries = (defenceCards.find((cd) => cd.id === "arms_trend")?.data?.[0] ?? null) as
+          | { points: { x: number; y: number }[] }
+          | null;
+        const armsLast = armsSeries?.points?.[armsSeries.points.length - 1] ?? null;
         const profiles = Array.from(profileMap.values());
 
         // Nuclear count based on confirmed status
@@ -127,10 +135,8 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
               icon: "🛡",
             },
             {
-              label: "Arms Trade Volume (TIV)",
-              value: (
-                defenseData.total_arms_export_market_share || 0
-              ).toLocaleString(),
+              label: armsLast ? `Arms trade (${armsLast.x}, customs)` : "Arms trade",
+              value: armsLast ? `${armsLast.y.toFixed(1)}B` : "—",
               icon: "🚀",
             },
             {
@@ -249,65 +255,63 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
     return () => clearInterval(interval);
   }, [activeModule, profileMap]);
 
+  const iconFor = (label: string) => {
+    const l = label.toLowerCase();
+    if (l.includes("countr")) return Globe2;
+    if (l.includes("relationship") || l.includes("ties") || l.includes("pair")) return Share2;
+    if (l.includes("domain")) return Layers;
+    if (l.includes("risk") || l.includes("conflict") || l.includes("threat")) return AlertTriangle;
+    if (l.includes("nuclear") || l.includes("defen") || l.includes("arms")) return Shield;
+    return BarChart3;
+  };
+
   return (
     <AnimatePresence>
       {isVisible && (
         <motion.div
-          initial={{ x: -50, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          exit={{ x: -50, opacity: 0 }}
-          className="fixed left-[88px] top-[80px] z-40 flex flex-col gap-2"
+          initial={{ y: -12, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: -12, opacity: 0 }}
+          className="fixed left-[88px] right-4 top-[76px] z-40 bo-panel rounded-2xl px-2 py-2 flex items-stretch overflow-x-auto no-scrollbar"
         >
+          <div className="absolute inset-y-0 right-0 w-[38%] rounded-r-2xl bo-banner-art pointer-events-none" aria-hidden />
           {isOffline && (
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="w-[160px] px-3 py-1.5 bg-rose-500/20 border border-rose-500/30 rounded-lg backdrop-blur-md flex items-center gap-2"
-            >
-              <div className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-              <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest">
-                Intelligence Offline
-              </span>
-            </motion.div>
+            <div className="flex items-center gap-2 px-4 text-[11px] font-bold text-rose-500">
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" /> Backend offline
+            </div>
           )}
-          {stats.map((stat, index) => (
-            <motion.div
-              key={stat.label}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.08 }}
-              className={`
-                w-[180px] p-3 rounded-xl border flex flex-col gap-1 shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-md transition-colors duration-500
-                ${
-                  isDayMode
-                    ? "bg-white/85 border-black/10 text-slate-800"
-                    : "bg-gradient-to-br from-slate-900/95 to-slate-800/90 border-white/8 text-white w-full"
-                }
-              `}
-            >
-              <div className="flex items-center justify-between">
+          {stats.map((stat, index) => {
+            const Icon = iconFor(stat.label);
+            const risky = /risk|conflict|threat/i.test(stat.label);
+            return (
+              <div
+                key={stat.label}
+                className={`flex items-center gap-3 px-5 py-1.5 min-w-[190px] ${index > 0 ? "border-l bo-divider" : ""}`}
+              >
                 <span
-                  className={`text-[9px] font-black uppercase tracking-wider ${isDayMode ? "text-slate-500" : "text-slate-400"}`}
+                  className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ background: risky ? "rgba(239,68,68,0.12)" : "var(--bo-accent-soft)", color: risky ? "#ef4444" : "var(--bo-accent)" }}
                 >
-                  {stat.label}
+                  <Icon size={20} />
                 </span>
-                <span className="text-xs">{stat.icon}</span>
-              </div>
-
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-black tracking-tight font-mono">
-                  {stat.value}
+                <span className="flex flex-col min-w-0">
+                  <span className="text-[22px] font-black tracking-tight bo-t1 tabular-nums leading-none">{stat.value}</span>
+                  <span className="text-[11px] bo-t3 mt-1 truncate" title={stat.label}>{stat.label}</span>
                 </span>
-                {stat.delta && (
-                  <span
-                    className={`text-[10px] font-bold ${stat.delta.startsWith("+") ? "text-emerald-500" : "text-rose-500"}`}
-                  >
-                    {stat.delta}
-                  </span>
-                )}
               </div>
-            </motion.div>
-          ))}
+            );
+          })}
+          {builtAt && (
+            <div className="relative flex items-center gap-3 px-5 py-1.5 border-l bo-divider ml-auto shrink-0 rounded-xl" style={{ background: "var(--bo-surface)" }}>
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span className="flex flex-col">
+                <span className="text-[11px] bo-t3">Last data update</span>
+                <span className="text-[13px] font-bold bo-t1">
+                  {new Date(builtAt).toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </span>
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>

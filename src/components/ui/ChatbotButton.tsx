@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, X, Send } from 'lucide-react';
 import { MODULE_CONFIGS } from '../../lib/api';
 import { ActiveModule, CountryProfile } from '../../types';
+import { chatAction } from '../../app/actions/chat';
 
 interface ChatbotButtonProps {
   activeModule: ActiveModule;
@@ -40,34 +41,16 @@ const ChatbotButton: React.FC<ChatbotButtonProps> = ({ activeModule, selectedCou
     setCurrentInput('');
     setIsLoading(true);
 
-    const systemPrompt = `You are a geopolitical intelligence analyst for the Global Intelligence Engine. Current module: ${activeModule}. ${selectedCountry ? `Currently viewing: ${selectedCountry.country} — ${JSON.stringify(selectedCountry)}` : 'No country selected.'} Answer questions about defence profiles, conflict risks, military strength, and geopolitical relationships. Keep answers under 3 sentences. Be specific and data-focused.`;
-
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.NEXT_PUBLIC_ANTHROPIC_KEY || '',
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-3-sonnet-20240229',
-          max_tokens: 300,
-          system: systemPrompt,
-          messages: newMessages.map(m => ({ role: m.role, content: m.text })),
-        }),
+      const res = await chatAction({
+        activeModule,
+        countryContext: selectedCountry ? JSON.stringify(selectedCountry) : null,
+        messages: newMessages,
       });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const aiText = data.content[0]?.text || 'Sorry, I couldn\'t process that.';
-      setMessages(prev => [...prev, { role: 'assistant', text: aiText }]);
+      setMessages(prev => [...prev, { role: 'assistant', text: res.error ?? (res.text || 'No answer.') }]);
     } catch (error) {
-      console.error('Anthropic API error:', error);
-      setMessages(prev => [...prev, { role: 'assistant', text: 'An error occurred. Please try again.' }]);
+      console.error('Chat error:', error);
+      setMessages(prev => [...prev, { role: 'assistant', text: 'Chat request failed. Is the server running?' }]);
     } finally {
       setIsLoading(false);
     }

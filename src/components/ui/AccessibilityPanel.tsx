@@ -35,7 +35,7 @@ const AccessibilityPanel: React.FC = () => {
     <>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-[144px] right-5 z-[200] w-10 h-10 rounded-full flex items-center justify-center bg-white border border-gray-300 shadow-md"
+        className="fixed bottom-5 right-5 z-[200] w-10 h-10 rounded-full flex items-center justify-center bo-panel bo-t1"
       >
         <span className="text-sm font-bold text-gray-700">Aa</span>
       </button>
@@ -46,7 +46,7 @@ const AccessibilityPanel: React.FC = () => {
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 20 }}
-            className="fixed bottom-[192px] right-5 w-[240px] bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-[200]"
+            className="fixed bottom-[68px] right-5 w-[240px] bg-white rounded-xl shadow-xl border border-gray-200 p-4 z-[200] text-slate-800"
           >
             <div className="mb-4">
               <label className="text-sm font-medium text-gray-700">Text size</label>

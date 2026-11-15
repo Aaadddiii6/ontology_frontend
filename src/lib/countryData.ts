@@ -135,18 +135,13 @@ export function getModuleColor(
       case "defence":
         return profile.military_strength;
       case "economy":
-        // Normalize defense_spending (in millions USD) to a 0-1 score
-        const spendingScore = (profile.defense_spending || 0) / 1000000;
-        return Math.min(
-          1,
-          (profile.arms_export || 0) * 0.5 + spendingScore * 0.5,
-        );
+        // was defence spending + arms exports: the wrong domain
+        return profile.economic_influence ?? profile.trade_vulnerability;
       case "geopolitics":
         return profile.diplomatic_centrality;
       case "climate":
-        return (
-          (profile.live_risk || 0) * 0.7 + (profile.conflict_risk || 0) * 0.3
-        );
+        // was live risk + conflict risk: not climate data
+        return profile.climate_risk;
       default:
         return undefined;
     }

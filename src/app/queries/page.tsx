@@ -510,19 +510,16 @@ export default function QueryPage() {
                   animate={{ opacity: 1, y: 0 }}
                   className="h-full flex flex-col items-center justify-center max-w-2xl mx-auto text-center"
                 >
-                  <div className="w-20 h-20 rounded-3xl bg-indigo-500/10 flex items-center justify-center mb-8 border border-indigo-500/20">
-                    <Brain size={40} className="text-indigo-500" />
+                  <div className="w-full rounded-3xl bo-hero-art px-8 py-10 mb-10 shadow-xl">
+                    <div className="w-16 h-16 rounded-2xl bg-white/15 flex items-center justify-center mb-5 mx-auto border border-white/25 backdrop-blur">
+                      <Brain size={32} className="bo-hero-title" />
+                    </div>
+                    <h1 className="text-4xl font-black bo-hero-title mb-3 tracking-tight">Intelligence Terminal</h1>
+                    <p className="bo-hero-sub text-[15px] font-medium">
+                      Ask in plain English. Answers are built only from the knowledge graph: rankings, defence,
+                      economy, geopolitics and climate data.
+                    </p>
                   </div>
-                  <h1
-                    className={`text-4xl font-black ${isDayMode ? "text-slate-800" : "text-white"} mb-4 tracking-tight`}
-                  >
-                    Intelligence Terminal
-                  </h1>
-                  <p className="text-slate-500 text-lg mb-12 font-medium">
-                    Query the global knowledge graph. Access live rankings,
-                    defense data, economic projections, and climate risk
-                    assessments.
-                  </p>
 
                   <div className="grid grid-cols-2 gap-4 w-full">
                     {suggestions.map((s, i) => (

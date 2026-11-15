@@ -67,114 +67,50 @@ function toArr(data: any): any[] {
 // Merges global-risk + influence + defense spending + arms into CountryProfile[]
 // ────────────────────────────────────────────────────────────────────────────
 export async function fetchAllProfiles(): Promise<CountryProfile[] | null> {
+  // One query on the backend (/graph/profiles) returns every country's
+  // stored scores with their real names. The old version stitched four
+  // endpoints together and relabelled fields (global risk was shown as
+  // "conflict risk" AND "live risk", economic power as "arms export").
   try {
-    const [globalRisk, influence, defense, arms] = await Promise.all([
-      fetchWithCache<any>(
-        "global-risk-all",
-        `${BASE_URL}/composite/rankings/global-risk`,
-      ),
-      fetchWithCache<any>(
-        "influence-all",
-        `${BASE_URL}/composite/rankings/influence`,
-      ),
-      fetchWithCache<any>(
-        "defense-spending-all",
-        `${BASE_URL}/defense/spending/top?limit=261`,
-      ),
-      fetchWithCache<any>(
-        "defense-arms-all",
-        `${BASE_URL}/defense/arms/top?limit=261`,
-      ),
+    const [rows, defense] = await Promise.all([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- row shape documented in api/graph_layers.py
+      fetchWithCache<{ profiles: any[] }>("graph-profiles", `${BASE_URL}/graph/profiles`),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchWithCache<any>("defense-spending-all", `${BASE_URL}/defense/spending/top?limit=261`),
     ]);
+    if (!rows?.profiles) return null;
+    const spending = new Map<string, number>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    toArr(defense).forEach((r: any) => r.country && r.spending_usd_millions != null && spending.set(r.country, Number(r.spending_usd_millions)));
 
-    if (!globalRisk && !influence && !defense) return null;
-
-    const profileMap = new Map<string, CountryProfile>();
-
-    const getProfile = (country: string): CountryProfile => {
-      if (!profileMap.has(country)) profileMap.set(country, { country });
-      return profileMap.get(country)!;
-    };
-
-    // global_risk → conflict_risk + live_risk
-    toArr(globalRisk).forEach((r: any) => {
-      if (!r.country) return;
-      const p = getProfile(r.country);
-      const val = r.global_risk ?? r.risk_score ?? null;
-      if (val !== null) {
-        p.conflict_risk = val;
-        p.live_risk = val;
-      }
-      if (r.strategic_influence != null)
-        p.diplomatic_centrality = r.strategic_influence;
-      if (r.military_strength != null)
-        p.military_strength = r.military_strength;
-
-      // Map nuclear_status correctly
-      if (r.nuclear_status != null) {
-        if (r.nuclear_status === true) {
-          p.nuclear = "confirmed";
-        } else {
-          const n = String(r.nuclear_status).toLowerCase();
-          if (n === "confirmed" || n === "true" || n === "1" || n === "yes")
-            p.nuclear = "confirmed";
-          else if (n === "undeclared") p.nuclear = "undeclared";
-          else p.nuclear = null;
-        }
-      }
-
-      if (r.un_p5 != null) p.p5 = r.un_p5;
-      if (r.region != null) p.region = r.region;
+    return rows.profiles.map((r) => {
+      const nuclear = r.nuclear ? String(r.nuclear).toLowerCase() : null;
+      const profile: CountryProfile = {
+        country: r.country,
+        iso: r.iso ?? null,
+        region: r.region ?? null,
+        alliances: r.alliances ?? [],
+        nuclear: nuclear === "confirmed" ? "confirmed" : nuclear === "undeclared" ? "undeclared" : null,
+        p5: r.p5 ?? null,
+        regional_power: r.regional_power ?? null,
+        global_risk: r.global_risk ?? undefined,
+        defense_composite: r.global_risk ?? undefined,
+        strategic_influence: r.strategic_influence ?? undefined,
+        vulnerability: r.vulnerability ?? undefined,
+        conflict_risk: r.conflict_risk ?? undefined,
+        live_risk: r.live_risk ?? undefined,
+        military_strength: r.military_strength ?? undefined,
+        arms_export: r.arms_export_score ?? undefined,
+        economic_influence: r.economic_influence ?? undefined,
+        trade_vulnerability: r.trade_vulnerability ?? undefined,
+        energy_vulnerability: r.energy_vulnerability ?? undefined,
+        diplomatic_centrality: r.diplomatic_centrality ?? undefined,
+        climate_risk: r.climate_risk ?? undefined,
+        gdp_usd: r.gdp_usd_bn != null ? Number(r.gdp_usd_bn) * 1e9 : undefined,
+        defense_spending: spending.get(r.country),
+      };
+      return profile;
     });
-
-    // strategic_influence → diplomatic_centrality + extra composite fields
-    toArr(influence).forEach((r: any) => {
-      if (!r.country) return;
-      const p = getProfile(r.country);
-      if (r.strategic_influence != null)
-        p.diplomatic_centrality = r.strategic_influence;
-      if (r.military_strength != null)
-        p.military_strength = r.military_strength;
-      if (r.economic_power != null) p.arms_export = r.economic_power;
-      if (r.region != null) p.region = r.region;
-
-      if (r.nuclear_status != null) {
-        if (r.nuclear_status === true) {
-          p.nuclear = "confirmed";
-        } else {
-          const n = String(r.nuclear_status).toLowerCase();
-          if (n === "confirmed" || n === "true" || n === "1" || n === "yes")
-            p.nuclear = "confirmed";
-          else if (n === "undeclared") p.nuclear = "undeclared";
-        }
-      }
-
-      if (r.un_p5 != null) p.p5 = r.un_p5;
-    });
-
-    // defense spending → defense_spending (keep raw millions), defense_burden
-    toArr(defense).forEach((r: any) => {
-      if (!r.country) return;
-      const p = getProfile(r.country);
-      const spendingVal =
-        r.spending_usd_millions ??
-        r.spending_2023 ??
-        r.spending_usd ??
-        r.total_spending ??
-        null;
-      if (spendingVal != null) p.defense_spending = Number(spendingVal);
-      if (r.normalized_weight != null) p.defense_burden = r.normalized_weight;
-    });
-
-    // arms export → normalise to 0-1
-    toArr(arms).forEach((r: any) => {
-      if (!r.country) return;
-      const p = getProfile(r.country);
-      const tiv = r.avg_market_share_pct ?? r.total_tiv ?? null;
-      if (tiv != null) p.arms_export = Number(tiv) / 100;
-    });
-
-    return Array.from(profileMap.values());
   } catch (error) {
     console.error("Failed to fetch all profiles:", error);
     return null;
@@ -636,3 +572,217 @@ export const MODULE_CONFIGS: Record<string, ModuleConfig> = {
     label: "Simulation",
   },
 };
+
+// ─── Scenario catalogue (structured simulator) ───────────────────────────────
+// Backend /simulate/scenarios returns, per scenario type, what the actor and
+// target slots mean. The UI uses it to label inputs and hide unused ones.
+export interface ScenarioInfo {
+  type: string;
+  domain: "economy" | "defense" | "geopolitics" | "climate" | "composite";
+  label: string;
+  actor: string | null;
+  target: string | null;
+  target_kind: "country" | "alliance" | "bloc" | "region" | "none";
+  example: string;
+  available: boolean;
+}
+
+export async function fetchScenarioCatalog(): Promise<ScenarioInfo[]> {
+  const data = await fetchWithCache<{ catalog?: ScenarioInfo[] }>(
+    "simulate-catalog",
+    `${BASE_URL}/simulate/scenarios`,
+  );
+  return data?.catalog ?? [];
+}
+
+// ─── Health / data status ────────────────────────────────────────────────────
+export interface HealthInfo {
+  api: string;
+  built_at?: string | null;
+  neo4j: { host: string | null; status: "ok" | "error" | "unknown"; error?: string };
+  llm: { order: string[]; configured: string[]; cooling_down: Record<string, number>; openai_model: string };
+  graph?: {
+    node_counts: Record<string, number>;
+    relationship_counts: Record<string, number>;
+    total_nodes: number;
+    total_relationships: number;
+    countries: number;
+    score_coverage: Record<string, number>;
+    domains: Record<string, { loaded: boolean; edges: Record<string, number> }>;
+    trade_years: { min_year?: number | null; max_year?: number | null };
+  };
+}
+
+/** Not cached: the status panel should reflect a rebuild immediately. */
+export async function fetchHealth(): Promise<HealthInfo | null> {
+  try {
+    const res = await fetch(`${BASE_URL}/health`, { cache: "no-store", signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return null;
+    return (await res.json()) as HealthInfo;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Graph layers: map lines + choropleth metrics, straight from Neo4j ───────
+export interface GraphLayerInfo {
+  key: string;
+  label: string;
+  domain: string;
+  color: string;
+  unit: string;
+  source: string;
+  directed: boolean;
+  available_edges: number;
+}
+
+export interface GraphEdge {
+  from: string;
+  to: string;
+  from_iso: string | null;
+  to_iso: string | null;
+  value: number;
+  year: number | null;
+  weight: number;
+  label: string;
+}
+
+export interface GraphRelations {
+  layer: string;
+  label: string;
+  color: string;
+  unit: string;
+  source: string;
+  directed: boolean;
+  edges: GraphEdge[];
+}
+
+export interface GraphMetricInfo {
+  key: string;
+  label: string;
+  domain: string;
+  unit: string;
+  direction: "up" | "down" | null;
+  source: string;
+}
+
+export interface GraphMetricValues {
+  key: string;
+  values: { country: string; iso: string | null; value: number; year: number | null }[];
+  count: number;
+  min: number | null;
+  max: number | null;
+  p05: number | null;
+  p95: number | null;
+}
+
+export async function fetchGraphLayers(): Promise<GraphLayerInfo[]> {
+  const d = await fetchWithCache<{ layers: GraphLayerInfo[] }>("graph-layers", `${BASE_URL}/graph/layers`);
+  return d?.layers ?? [];
+}
+
+export async function fetchGraphRelations(layer: string, limit: number, country?: string | null): Promise<GraphRelations | null> {
+  const qs = new URLSearchParams({ layer, limit: String(limit) });
+  if (country) qs.set("country", country);
+  return fetchWithCache<GraphRelations>(`graph-rel-${qs}`, `${BASE_URL}/graph/relations?${qs}`);
+}
+
+export async function fetchGraphMetrics(): Promise<GraphMetricInfo[]> {
+  const d = await fetchWithCache<{ metrics: GraphMetricInfo[] }>("graph-metrics", `${BASE_URL}/graph/metrics`);
+  return d?.metrics ?? [];
+}
+
+export async function fetchGraphMetric(key: string): Promise<GraphMetricValues | null> {
+  return fetchWithCache<GraphMetricValues>(`graph-metric-${key}`, `${BASE_URL}/graph/metric?key=${encodeURIComponent(key)}`);
+}
+
+/** ISO numeric (zero-padded, as in the map file) -> graph country name. */
+export async function fetchGraphCountries(): Promise<Map<string, string>> {
+  const d = await fetchWithCache<{ countries: { name: string; iso: string | null }[] }>(
+    "graph-countries",
+    `${BASE_URL}/graph/countries`,
+  );
+  const m = new Map<string, string>();
+  for (const c of d?.countries ?? []) if (c.iso) m.set(String(c.iso).padStart(3, "0"), c.name);
+  return m;
+}
+
+export interface CountryIndicator {
+  code: string;
+  key: string;
+  label: string;
+  unit: string;
+  domain: string;
+  direction: "up" | "down" | null;
+  source: string;
+  series: { year: number; value: number; projected: boolean }[];
+}
+
+export async function fetchCountryIndicators(country: string): Promise<CountryIndicator[]> {
+  const d = await fetchWithCache<{ indicators: CountryIndicator[] }>(
+    `country-ind-${country}`,
+    `${BASE_URL}/graph/country/${encodeURIComponent(country)}/indicators`,
+  );
+  return d?.indicators ?? [];
+}
+
+// ─── Full country profile (one request, every number from the graph) ─────────
+export interface SeriesPoint {
+  year: number;
+  value: number | null;
+}
+
+export interface CountryProfileFull {
+  country: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw node properties vary by loaded domains
+  properties: Record<string, any>;
+  alliances: string[];
+  region: string[];
+  political: { system: string; score: number | null; year: number } | null;
+  gdp: SeriesPoint[];
+  inflation: SeriesPoint[];
+  defense_spending: SeriesPoint[];
+  conflict: { year: number; fatalities: number | null; violence_events: number | null; civilian_events: number | null; trend: string | null }[];
+  arms_exports: SeriesPoint[];
+  export_partners: { country: string; value: number; year: number }[];
+  import_partners: { country: string; value: number; year: number }[];
+  energy_suppliers: { country: string; value: number; share: number | null }[];
+  trade_totals: { year: number; exports: number | null; imports: number | null } | null;
+  agreements: { partners: number; names: string[] } | null;
+  sanctions_received: { by: string; entities: number }[];
+  sanctions_imposed: { on: string; entities: number }[];
+  aligned: { country: string; similarity: number }[];
+  opposed: { country: string; score: number }[];
+  bloc: { bloc_id: number; members: number; sample: string[] } | null;
+  diplomacy: { country: string; events: number }[];
+  disasters: { rel: string; kind: string; name: string | null; year: number | null }[];
+  connections: { type: string; n: number }[];
+  risk_rank: { rank: number; of: number } | null;
+  arms_suppliers?: { country: string; value: number; weapons: string[] }[];
+  arms_recipients?: { country: string; value: number; weapons: string[] }[];
+  arms_companies?: { company: string; value: number; year: number; rank: number | null; arms_share: number | null }[];
+}
+
+export async function fetchCountryProfile(country: string): Promise<CountryProfileFull | null> {
+  return fetchWithCache<CountryProfileFull>(
+    `country-profile-full-${country}`,
+    `${BASE_URL}/graph/country/${encodeURIComponent(country)}/profile`,
+  );
+}
+
+// ─── Home insight cards (/graph/insights) ────────────────────────────────────
+export interface InsightCard {
+  id: string;
+  title: string;
+  kind: "bars" | "series" | "split";
+  unit: string;
+  source: string;
+  // bars/split: {label, value}[]; series: {label, unit, points: {x, y}[]}[]
+  data: unknown[];
+  error?: string;
+}
+
+export async function fetchInsights(module: string): Promise<InsightCard[]> {
+  const d = await fetchWithCache<{ cards: InsightCard[] }>(`insights-${module}`, `${BASE_URL}/graph/insights?module=${module}`);
+  return d?.cards ?? [];
+}

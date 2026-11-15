@@ -1,4 +1,6 @@
 "use client";
+import DataStatusPanel from "@/components/ui/DataStatusPanel";
+import { IntelligenceQueryModal } from "@/components/ui/IntelligenceQueryModal";
 import React, {
   useState,
   useCallback,
@@ -14,8 +16,7 @@ import HexMap from "../components/map/HexMap";
 import GlobeMap from "../components/map/GlobeMap";
 import MapToggle from "../components/map/MapToggle";
 import RelationsLayer from "../components/map/RelationsLayer";
-import CountryHoverCard from "../components/map/CountryHoverCard";
-import CountryDetailPanel from "../components/map/CountryDetailPanel";
+import CountryPanel from "@/components/map/CountryPanel";
 
 import AccessibilityPanel from "../components/ui/AccessibilityPanel";
 import DayNightBackground from "../components/ui/DayNightBackground";
@@ -28,6 +29,9 @@ import MapSkeleton from "../components/map/MapSkeleton";
 import * as topojson from "topojson-client";
 import { normalizeCountryName } from "../lib/countryData";
 import { HARDCODED_RELATIONS, RelationDomain } from "../lib/hardcodedRelations";
+import MapControls from "@/components/map/MapControls";
+import InsightCards from "@/components/map/InsightCards";
+import { useMapLayers, DEFAULT_LAYERS } from "@/hooks/useMapLayers";
 
 export default function Home() {
   const [activeModule, setActiveModule] = useState<ActiveModule>("overview");
@@ -42,8 +46,14 @@ export default function Home() {
   );
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [isRelationsVisible, setIsRelationsVisible] = useState(false); // Default to offline
-  const [globeRelations, setGlobeRelations] = useState<any[]>([]);
+  const [isRelationsVisible, setIsRelationsVisible] = useState(true);
+  const [activeLayers, setActiveLayers] = useState<string[]>(DEFAULT_LAYERS.overview);
+  const [lineLimit, setLineLimit] = useState(150);
+  const [linkOpacity, setLinkOpacity] = useState(0.6);
+  const [colorMetric, setColorMetric] = useState<string | null>(null);
+  const [focusCountry, setFocusCountry] = useState<string | null>(null);
+  const [mapZoom, setMapZoom] = useState<{ k: number; x: number; y: number }>({ k: 1, x: 0, y: 0 });
+  const [isoCentroids, setIsoCentroids] = useState<Map<string, [number, number]>>(new Map());
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [countryCentroids, setCountryCentroids] = useState<
     Map<string, [number, number]>
@@ -62,7 +72,9 @@ export default function Home() {
           worldData.objects.countries as any,
         );
         const centroids = new Map<string, [number, number]>();
+        const byIso = new Map<string, [number, number]>();
         (countries as any).features.forEach((f: any) => {
+          if (f.id != null) byIso.set(String(f.id).padStart(3, "0"), d3.geoCentroid(f));
           const name = normalizeCountryName(f.properties.name);
           if (name) {
             const centroid = d3.geoCentroid(f);
@@ -70,6 +82,7 @@ export default function Home() {
           }
         });
         setCountryCentroids(centroids);
+        setIsoCentroids(byIso);
       });
   }, []);
 
@@ -87,115 +100,35 @@ export default function Home() {
     return () => observer.disconnect();
   }, []);
 
+  // Map lines + choropleth straight from the graph (/graph/relations, /graph/metric).
+  const { layers, metrics, isoToName, edges, loadingEdges, fillByIso, legend } = useMapLayers({
+    activeLayers,
+    limit: lineLimit,
+    focusCountry,
+    colorMetric,
+  });
+
+  // Each tab opens with its own default layers; users can add any others.
   useEffect(() => {
-    import("../lib/api").then((api) => {
-      const load = async () => {
-        const moduleColor = MODULE_CONFIGS[activeModule]?.accent || "#4f46e5";
-
-        let fetchedData: any[] | null = null;
-
-        if (activeModule === "overview") {
-          fetchedData = await api.fetchInfluenceNetwork();
-        } else if (activeModule === "economy") {
-          fetchedData = await api.fetchEconomyTopTradePairs();
-        } else if (activeModule === "geopolitics") {
-          const network = await api.fetchGeopoliticsNetwork();
-          fetchedData = network?.edges || null;
-        } else if (activeModule === "defence") {
-          fetchedData = await api.fetchInfluenceNetwork();
-        } else if (activeModule === "climate") {
-          fetchedData = await api.fetchClimateGlobalConflictRisk();
-        }
-
-        // For Economy and Defence, prioritize hardcoded relations as requested
-        const isPriorityHardcoded =
-          activeModule === "economy" ||
-          activeModule === "defence" ||
-          activeModule === "climate";
-
-        const targetDomain = activeModule as RelationDomain;
-
-        const hasHardcoded =
-          HARDCODED_RELATIONS[targetDomain] &&
-          HARDCODED_RELATIONS[targetDomain].length > 0;
-
-        if (isPriorityHardcoded && hasHardcoded) {
-          console.log(
-            `Using prioritized hardcoded relations for ${activeModule}`,
-          );
-          setGlobeRelations(
-            HARDCODED_RELATIONS[targetDomain].map((rel: any) => ({
-              fromCountry: rel.fromCountry,
-              toCountry: rel.toCountry,
-              weight: rel.weight || 0.5,
-              moduleColor,
-            })),
-          );
-          return;
-        }
-
-        // Use hardcoded relations as fallback if fetch fails or returns empty
-        const useHardcodedFallback =
-          !fetchedData ||
-          (Array.isArray(fetchedData) && fetchedData.length === 0);
-
-        if (useHardcodedFallback && hasHardcoded) {
-          console.log(`Using hardcoded fallback for ${activeModule}`);
-          setGlobeRelations(
-            HARDCODED_RELATIONS[activeModule].map((rel: any) => ({
-              fromCountry: rel.fromCountry,
-              toCountry: rel.toCountry,
-              weight: rel.weight || 0.5,
-              moduleColor,
-            })),
-          );
-          return;
-        }
-
-        if (Array.isArray(fetchedData)) {
-          setGlobeRelations(
-            fetchedData.slice(0, 150).map((edge: any) => {
-              // Handle various field names from different endpoints
-              const from =
-                edge.influencer ||
-                edge.country_a ||
-                edge.country1 ||
-                edge.source ||
-                edge.from ||
-                edge.source_country;
-              const to =
-                edge.influenced ||
-                edge.country_b ||
-                edge.country2 ||
-                edge.target ||
-                edge.to ||
-                edge.at_risk_country;
-              const weight =
-                edge.influence_score ||
-                edge.normalized_weight ||
-                edge.trade_volume_normalized ||
-                edge.weight ||
-                edge.alignment_score ||
-                edge.conflict_score ||
-                edge.risk_score ||
-                0.5;
-
-              return {
-                fromCountry: from,
-                toCountry: to,
-                weight: weight,
-                moduleColor,
-              };
-            }),
-          );
-        } else {
-          setGlobeRelations([]);
-        }
-      };
-
-      load();
-    });
+    setActiveLayers(DEFAULT_LAYERS[activeModule] ?? []);
   }, [activeModule]);
+
+  // Backend offline / no layers: fall back to the generated snapshot of graph edges.
+  const globeRelations = React.useMemo(() => {
+    if (edges.length || layers.length) return edges;
+    const domain = activeModule as RelationDomain;
+    const color = MODULE_CONFIGS[activeModule]?.accent || "#4f46e5";
+    return (HARDCODED_RELATIONS[domain] ?? []).map((r) => ({
+      fromCountry: r.fromCountry,
+      toCountry: r.toCountry,
+      weight: r.weight,
+      moduleColor: color,
+    }));
+  }, [edges, layers.length, activeModule]);
+
+  const toggleLayer = useCallback((key: string) => {
+    setActiveLayers((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }, []);
 
   const handleToggleMode = useCallback(() => {
     if (isTransitioning) return;
@@ -213,8 +146,9 @@ export default function Home() {
   const handleCountryClick = useCallback(
     (name: string) => {
       const profile = getCountry(name);
-      if (profile) {
-        setSelectedCountry(profile);
+      setFocusCountry(name);
+      {
+        setSelectedCountry(profile ?? { country: name });
         setIsPanelOpen(true);
         setIsDetailOpen(false);
       }
@@ -239,31 +173,28 @@ export default function Home() {
       <DayNightBackground />
       <Navbar activeModule={activeModule} onModuleChange={setActiveModule} />
       <Sidebar activeModule={activeModule} />
+      <IntelligenceQueryModal showTrigger={false} />
 
-      {/* Unified Relations Toggle */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-100 pointer-events-auto">
-        <motion.button
-          onClick={() => setIsRelationsVisible(!isRelationsVisible)}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all duration-300 shadow-2xl backdrop-blur-xl ${
-            isRelationsVisible
-              ? "bg-indigo-500/20 border-indigo-500/50 text-white"
-              : "bg-slate-900/40 border-white/10 text-slate-400"
-          }`}
-        >
-          <div
-            className={`w-2 h-2 rounded-full ${isRelationsVisible ? "bg-indigo-400 animate-pulse" : "bg-slate-600"}`}
-          />
-          <span className="text-[11px] font-bold tracking-wider uppercase">
-            Relations {isRelationsVisible ? "Online" : "Offline"}
-          </span>
-        </motion.button>
+      {/* Relationship intensity legend (line width = relative strength within a layer) */}
+      <div className="fixed bottom-5 right-[360px] z-[80] bo-panel rounded-2xl px-5 py-3">
+        <div className="text-[12px] font-semibold bo-t1 mb-2">Relationship intensity</div>
+        <div className="flex items-end gap-6">
+          {[
+            ["Low", 1],
+            ["Medium", 2.5],
+            ["High", 4.5],
+          ].map(([label, w]) => (
+            <div key={label as string} className="flex flex-col items-center gap-1.5">
+              <span className="w-14 rounded-full" style={{ height: w as number, background: "var(--bo-accent)", opacity: 0.35 + (w as number) / 8 }} />
+              <span className="text-[11px] bo-t3">{label}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <section
         ref={mapContainerRef}
-        className="absolute top-0 left-0 w-full h-full pt-[64px] pl-[72px]"
+        className="absolute top-0 left-0 w-full h-full pt-[156px] pl-[72px]"
       >
         <Suspense fallback={<MapSkeleton />}>
           <div className="relative w-full h-full">
@@ -281,6 +212,10 @@ export default function Home() {
                 activeModule={activeModule}
                 onCountryHover={handleCountryHover}
                 onCountryClick={handleCountryClick}
+                fillByIso={fillByIso}
+                isoToName={isoToName}
+                focusCountry={focusCountry}
+                onZoom={setMapZoom}
               />
               {/* RelationsLayer as sibling to HexMap */}
               <RelationsLayer
@@ -291,6 +226,9 @@ export default function Home() {
                 dimensions={dimensions}
                 relations={globeRelations}
                 countryCoords={countryCentroids}
+                isoCoords={isoCentroids}
+                zoom={mapZoom}
+                opacity={linkOpacity}
               />
             </motion.div>
 
@@ -311,6 +249,10 @@ export default function Home() {
                 relations={globeRelations}
                 visible={mapMode !== "flat"}
                 countryCoords={countryCentroids}
+                isoCoords={isoCentroids}
+                isoToName={isoToName}
+                fillByIso={fillByIso}
+                linkOpacity={linkOpacity}
               />
             </motion.div>
           </div>
@@ -325,28 +267,37 @@ export default function Home() {
 
       <AnimatePresence>
         {isPanelOpen && selectedCountry && (
-          <CountryHoverCard
+          <CountryPanel
+            key={selectedCountry.country}
             country={selectedCountry.country}
-            profile={selectedCountry}
             activeModule={activeModule}
             onClose={() => setIsPanelOpen(false)}
-            onOpenDetail={handleOpenDetail}
           />
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {isDetailOpen && selectedCountry && (
-          <CountryDetailPanel
-            country={selectedCountry.country}
-            profile={selectedCountry}
-            onClose={() => setIsDetailOpen(false)}
-            activeModule={activeModule}
-          />
-        )}
-      </AnimatePresence>
+      {!isPanelOpen && <InsightCards module={activeModule} />}
+
+      <MapControls
+        layers={layers}
+        activeLayers={activeLayers}
+        onToggleLayer={toggleLayer}
+        limit={lineLimit}
+        onLimit={setLineLimit}
+        opacity={linkOpacity}
+        onOpacity={setLinkOpacity}
+        metrics={metrics}
+        colorMetric={colorMetric}
+        onColorMetric={setColorMetric}
+        legend={legend}
+        focusCountry={focusCountry}
+        onClearFocus={() => setFocusCountry(null)}
+        edgeCount={globeRelations.length}
+        loading={loadingEdges}
+      />
 
       <AccessibilityPanel />
+      <DataStatusPanel />
 
       <StatsOverlay
         activeModule={activeModule}
