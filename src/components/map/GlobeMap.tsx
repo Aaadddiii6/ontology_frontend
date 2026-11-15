@@ -26,6 +26,8 @@ interface GlobeMapProps {
   isoToName?: Map<string, string>;
   /** ISO numeric -> [lon, lat] centroid, used to place relation arcs */
   isoCoords?: Map<string, [number, number]>;
+  /** 0..1 multiplier from the "Links opacity" slider */
+  linkOpacity?: number;
 }
 
 const geoCoordsTo3d = (
@@ -55,6 +57,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
   fillByIso,
   isoToName,
   isoCoords,
+  linkOpacity = 0.6,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -65,6 +68,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
   const globeGroupRef = useRef<THREE.Group>(new THREE.Group());
   const countryMeshesRef = useRef<THREE.Group>(new THREE.Group());
   const relationsGroupRef = useRef<THREE.Group>(new THREE.Group());
+  const cloudsRef = useRef<THREE.Mesh | null>(null);
   const animFrameRef = useRef<number>(0);
   const isDragging = useRef(false);
   const prevMouse = useRef({ x: 0, y: 0 });
@@ -159,66 +163,75 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
-    // ── Lights
-    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-    sun.position.set(400, 300, 400);
+    // ── Lights: one "sun" + soft sky fill. Realistic day side, readable night side.
+    scene.add(new THREE.AmbientLight(0xcfdcff, 1.15));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.6);
+    sun.position.set(-260, 160, 520); // front-left: lit face toward the viewer, soft terminator on the right
     scene.add(sun);
-    const fill = new THREE.PointLight(0xaaccff, 0.8, 1000);
-    fill.position.set(-200, -100, 200);
-    scene.add(fill);
 
-    // ── Globe base
-    const globeBase = new THREE.Mesh(
-      new THREE.SphereGeometry(100, 128, 128),
-      new THREE.MeshStandardMaterial({
-        color: 0x0d1b2e,
-        roughness: 0.4,
-        metalness: 0.6,
-        transparent: true,
-        opacity: 0.97,
-        depthWrite: false, // Allow polygons to render "through" if needed
+    // ── Earth: NASA Blue Marble colour + terrain normal map + ocean shine.
+    // 2048px textures (~1.5 MB total) keep it light; 96 segments is plenty
+    // at this size. Loaded async so the globe appears even before textures.
+    const loader = new THREE.TextureLoader();
+    const tex = (url: string, srgb = false) => {
+      const t = loader.load(url);
+      if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+      return t;
+    };
+    const earth = new THREE.Mesh(
+      new THREE.SphereGeometry(100, 96, 96),
+      new THREE.MeshPhongMaterial({
+        map: tex("/textures/earth_atmos_2048.jpg", true),
+        normalMap: tex("/textures/earth_normal_2048.jpg"),
+        normalScale: new THREE.Vector2(0.85, 0.85),
+        specularMap: tex("/textures/earth_specular_2048.jpg"),
+        specular: new THREE.Color(0x335577),
+        shininess: 18,
       }),
     );
-    globeGroupRef.current.add(globeBase);
+    // geoCoordsTo3d() uses the same lon/lat -> xyz mapping as SphereGeometry UVs,
+    // so the imagery lines up with borders and arcs without any rotation.
+    globeGroupRef.current.add(earth);
 
-    // ── Subtle ocean shimmer
-    const ocean = new THREE.Mesh(
-      new THREE.SphereGeometry(99, 128, 128),
-      new THREE.MeshStandardMaterial({
-        color: 0x1a3a5c,
-        roughness: 0.1,
-        metalness: 0.9,
+    // ── Clouds: separate transparent shell that drifts slowly (subtle).
+    const clouds = new THREE.Mesh(
+      new THREE.SphereGeometry(101.4, 64, 64),
+      new THREE.MeshLambertMaterial({
+        map: tex("/textures/earth_clouds_1024.png", true),
         transparent: true,
-        opacity: 0.6,
+        opacity: 0.35,
         depthWrite: false,
       }),
     );
-    globeGroupRef.current.add(ocean);
+    cloudsRef.current = clouds;
+    globeGroupRef.current.add(clouds);
 
-    // ── Atmosphere glow
-    const atmo = new THREE.Mesh(
-      new THREE.SphereGeometry(115, 48, 48),
-      new THREE.MeshBasicMaterial({
-        color: 0x4f6ef7,
-        transparent: true,
-        opacity: 0.06,
+    // ── Atmosphere: Fresnel rim shader on a slightly larger back-facing
+    // sphere. Bright at the silhouette, invisible facing the camera, so it
+    // never hides the surface. Additive blend, one draw call.
+    const atmosphere = new THREE.Mesh(
+      new THREE.SphereGeometry(112, 64, 64),
+      new THREE.ShaderMaterial({
+        vertexShader: `
+          varying vec3 vNormal;
+          void main() {
+            vNormal = normalize(normalMatrix * normal);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }`,
+        fragmentShader: `
+          varying vec3 vNormal;
+          void main() {
+            float rim = pow(0.72 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 3.0);
+            gl_FragColor = vec4(0.35, 0.62, 1.0, 1.0) * rim;
+          }`,
         side: THREE.BackSide,
-      }),
-    );
-    globeGroupRef.current.add(atmo);
-
-    // ── Grid lines
-    const grid = new THREE.Mesh(
-      new THREE.SphereGeometry(100.5, 36, 36),
-      new THREE.MeshBasicMaterial({
-        color: 0x334466,
-        wireframe: true,
+        blending: THREE.AdditiveBlending,
         transparent: true,
-        opacity: 0.08,
+        depthWrite: false,
       }),
     );
-    globeGroupRef.current.add(grid);
+    scene.add(atmosphere); // not in the rotating group: the rim stays put
 
     // ── Add groups to globe
     globeGroupRef.current.add(countryMeshesRef.current);
@@ -286,7 +299,8 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
               emissive: baseHex,
               emissiveIntensity: 0.4,
               transparent: true,
-              opacity: 0.75, // Increased opacity for better coverage
+              opacity: 0, // overlay: tinted only on hover / metric colouring / simulation
+              depthWrite: false,
               side: THREE.FrontSide,
               polygonOffset: true,
               polygonOffsetFactor: -1,
@@ -304,9 +318,9 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
           const line = new THREE.Line(
             lineGeo,
             new THREE.LineBasicMaterial({
-              color: 0xffffff,
+              color: 0xdbeafe,
               transparent: true,
-              opacity: 0.15,
+              opacity: 0.35,
             }),
           );
           line.userData = { apiName, iso, isCountry: true };
@@ -345,8 +359,9 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
       animFrameRef.current = requestAnimationFrame(animate);
       if (!visibleRef.current) return;
       if (!isDragging.current) {
-        globeGroupRef.current.rotation.y += 0.0008;
+        globeGroupRef.current.rotation.y += 0.0006;
       }
+      if (cloudsRef.current) cloudsRef.current.rotation.y += 0.00012;
 
       const time = Date.now() * 0.005;
       countryMeshesRef.current.children.forEach((obj) => {
@@ -434,8 +449,9 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
               obj.material instanceof THREE.MeshStandardMaterial
             ) {
               if (obj.userData.isShape) {
-                obj.material.opacity = isThis ? 0.7 : 0.4;
-                obj.material.emissiveIntensity = isThis ? 0.8 : 0.3;
+                const base = obj.userData.baseOpacity ?? 0;
+                obj.material.opacity = isThis ? Math.max(0.35, base) : base;
+                obj.material.emissiveIntensity = isThis ? 0.5 : 0.15;
               } else {
                 obj.material.emissiveIntensity = isThis ? 1.2 : 0.4;
                 if (isThis) obj.scale.setScalar(1.3);
@@ -446,9 +462,9 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
               obj instanceof THREE.Line &&
               obj.material instanceof THREE.LineBasicMaterial
             ) {
-              obj.material.opacity = isThis ? 0.8 : 0.15;
-              if (isThis) obj.material.color.set(0x6366f1);
-              else obj.material.color.set(0xffffff);
+              obj.material.opacity = isThis ? 0.95 : 0.35;
+              if (isThis) obj.material.color.set(0x93c5fd);
+              else obj.material.color.set(0xdbeafe);
             }
           });
         }
@@ -461,8 +477,8 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
             obj.material instanceof THREE.MeshStandardMaterial
           ) {
             if (obj.userData.isShape) {
-              obj.material.opacity = 0.4;
-              obj.material.emissiveIntensity = 0.3;
+              obj.material.opacity = obj.userData.baseOpacity ?? 0;
+              obj.material.emissiveIntensity = 0.15;
             } else {
               obj.material.emissiveIntensity = 0.4;
               obj.scale.setScalar(1);
@@ -472,8 +488,8 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
             obj instanceof THREE.Line &&
             obj.material instanceof THREE.LineBasicMaterial
           ) {
-            obj.material.opacity = 0.15;
-            obj.material.color.set(0xffffff);
+            obj.material.opacity = 0.35;
+            obj.material.color.set(0xdbeafe);
           }
         });
       }
@@ -559,16 +575,12 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
         obj.material.emissive.set(colorHex);
         // Boost glow if it's severe
         if (obj.userData.isShape) {
-          obj.material.opacity = severity
-            ? 0.7
-            : obj.userData.apiName === lastHovered.current
-              ? 0.7
-              : 0.4;
-          obj.material.emissiveIntensity = severity
-            ? 0.8
-            : obj.userData.apiName === lastHovered.current
-              ? 0.8
-              : 0.3;
+          // The real Earth shows through: tint only when there is something to show.
+          const tinted = !!severity || (fillByIso !== undefined && fillByIso.size > 0);
+          const base = severity ? 0.6 : tinted ? 0.5 : 0;
+          obj.userData.baseOpacity = base;
+          obj.material.opacity = obj.userData.apiName === lastHovered.current ? Math.max(0.35, base) : base;
+          obj.material.emissiveIntensity = tinted ? 0.25 : 0.15;
         } else {
           obj.material.emissiveIntensity = severity
             ? 1.5
@@ -581,8 +593,8 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
         obj instanceof THREE.Line &&
         obj.material instanceof THREE.LineBasicMaterial
       ) {
-        obj.material.color.set(severity ? colorHex : 0xffffff);
-        obj.material.opacity = severity ? 0.8 : 0.3;
+        obj.material.color.set(severity ? colorHex : 0xdbeafe);
+        obj.material.opacity = severity ? 0.9 : 0.35;
       }
     });
   }, [colorForCountry, simulationResults, fillByIso, isoToName]);
@@ -624,15 +636,15 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
       const mat = new THREE.LineBasicMaterial({
         color: (rel.moduleColor ?? "#6366f1").substring(0, 7),
         transparent: true,
-        opacity: 0.25 + Math.min(0.6, (rel.weight ?? 0.5) * 0.6),
+        opacity: Math.min(1, (0.25 + Math.min(0.6, (rel.weight ?? 0.5) * 0.6)) * (linkOpacity / 0.6)),
       });
       relationsGroupRef.current.add(new THREE.Line(geo, mat));
     });
-  }, [relations, showRelations, getGeoCoords, isoCoords]);
+  }, [relations, showRelations, getGeoCoords, isoCoords, linkOpacity]);
 
   return (
     <div ref={containerRef} className="relative w-full h-full" style={{ cursor: "grab" }}>
-      <div className="absolute bottom-24 right-[84px] z-10 flex flex-col gap-1">
+      <div className="absolute bottom-[116px] left-6 z-10 flex flex-col bo-panel rounded-xl overflow-hidden">
         {[
           ["+", 0.8, "Zoom in"],
           ["−", 1.25, "Zoom out"],
@@ -641,7 +653,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
             key={label as string}
             onClick={() => zoomBy(f as number)}
             title={title as string}
-            className="w-9 h-9 rounded-lg glass-morphism bo-card bo-ink text-lg font-bold hover:bg-indigo-500/20"
+            className="w-10 h-10 bo-t1 text-lg font-semibold hover:bg-[var(--bo-accent-soft)] border-b last:border-b-0 bo-divider"
           >
             {label}
           </button>

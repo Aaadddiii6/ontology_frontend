@@ -598,6 +598,7 @@ export async function fetchScenarioCatalog(): Promise<ScenarioInfo[]> {
 // ─── Health / data status ────────────────────────────────────────────────────
 export interface HealthInfo {
   api: string;
+  built_at?: string | null;
   neo4j: { host: string | null; status: "ok" | "error" | "unknown"; error?: string };
   llm: { order: string[]; configured: string[]; cooling_down: Record<string, number>; openai_model: string };
   graph?: {

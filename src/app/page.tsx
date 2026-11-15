@@ -1,5 +1,6 @@
 "use client";
 import DataStatusPanel from "@/components/ui/DataStatusPanel";
+import { IntelligenceQueryModal } from "@/components/ui/IntelligenceQueryModal";
 import React, {
   useState,
   useCallback,
@@ -47,6 +48,7 @@ export default function Home() {
   const [isRelationsVisible, setIsRelationsVisible] = useState(true);
   const [activeLayers, setActiveLayers] = useState<string[]>(DEFAULT_LAYERS.overview);
   const [lineLimit, setLineLimit] = useState(150);
+  const [linkOpacity, setLinkOpacity] = useState(0.6);
   const [colorMetric, setColorMetric] = useState<string | null>(null);
   const [focusCountry, setFocusCountry] = useState<string | null>(null);
   const [mapZoom, setMapZoom] = useState<{ k: number; x: number; y: number }>({ k: 1, x: 0, y: 0 });
@@ -170,31 +172,28 @@ export default function Home() {
       <DayNightBackground />
       <Navbar activeModule={activeModule} onModuleChange={setActiveModule} />
       <Sidebar activeModule={activeModule} />
+      <IntelligenceQueryModal showTrigger={false} />
 
-      {/* Unified Relations Toggle */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-100 pointer-events-auto">
-        <motion.button
-          onClick={() => setIsRelationsVisible(!isRelationsVisible)}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-2xl border transition-all duration-300 shadow-2xl backdrop-blur-xl ${
-            isRelationsVisible
-              ? "bg-indigo-500/20 border-indigo-500/50 text-white"
-              : "bg-slate-900/40 border-white/10 text-slate-400"
-          }`}
-        >
-          <div
-            className={`w-2 h-2 rounded-full ${isRelationsVisible ? "bg-indigo-400 animate-pulse" : "bg-slate-600"}`}
-          />
-          <span className="text-[11px] font-bold tracking-wider uppercase">
-            Relations {isRelationsVisible ? "Online" : "Offline"}
-          </span>
-        </motion.button>
+      {/* Relationship intensity legend (line width = relative strength within a layer) */}
+      <div className="fixed bottom-5 right-[360px] z-[80] bo-panel rounded-2xl px-5 py-3">
+        <div className="text-[12px] font-semibold bo-t1 mb-2">Relationship intensity</div>
+        <div className="flex items-end gap-6">
+          {[
+            ["Low", 1],
+            ["Medium", 2.5],
+            ["High", 4.5],
+          ].map(([label, w]) => (
+            <div key={label as string} className="flex flex-col items-center gap-1.5">
+              <span className="w-14 rounded-full" style={{ height: w as number, background: "var(--bo-accent)", opacity: 0.35 + (w as number) / 8 }} />
+              <span className="text-[11px] bo-t3">{label}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <section
         ref={mapContainerRef}
-        className="absolute top-0 left-0 w-full h-full pt-[64px] pl-[72px]"
+        className="absolute top-0 left-0 w-full h-full pt-[156px] pl-[72px]"
       >
         <Suspense fallback={<MapSkeleton />}>
           <div className="relative w-full h-full">
@@ -228,6 +227,7 @@ export default function Home() {
                 countryCoords={countryCentroids}
                 isoCoords={isoCentroids}
                 zoom={mapZoom}
+                opacity={linkOpacity}
               />
             </motion.div>
 
@@ -251,6 +251,7 @@ export default function Home() {
                 isoCoords={isoCentroids}
                 isoToName={isoToName}
                 fillByIso={fillByIso}
+                linkOpacity={linkOpacity}
               />
             </motion.div>
           </div>
@@ -280,6 +281,8 @@ export default function Home() {
         onToggleLayer={toggleLayer}
         limit={lineLimit}
         onLimit={setLineLimit}
+        opacity={linkOpacity}
+        onOpacity={setLinkOpacity}
         metrics={metrics}
         colorMetric={colorMetric}
         onColorMetric={setColorMetric}

@@ -54,22 +54,28 @@ export default function DataStatusPanel() {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(!open)}
-        className="fixed bottom-4 left-[88px] z-[150] glass-morphism bo-card rounded-full pl-3 pr-4 py-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest bo-sub shadow-lg"
-        aria-expanded={open}
-      >
-        <span className={`w-2 h-2 rounded-full ${dot}`} />
-        <Database size={12} />
-        {!checked
-          ? "Checking data…"
-          : status === "down"
-            ? "Backend offline"
-            : `Data: ${loadedCount}/${domains.length} domains`}
-      </button>
+      {/* Status chips, bottom-left (as in the mockups). Click either for details. */}
+      <div className="fixed bottom-5 left-[96px] z-[150] flex gap-2">
+        <button
+          onClick={() => setOpen(!open)}
+          className="bo-panel rounded-full pl-3 pr-4 h-10 flex items-center gap-2 text-[13px] font-semibold bo-t1"
+          aria-expanded={open}
+        >
+          <span className={`w-2.5 h-2.5 rounded-full ${status === "down" ? "bg-rose-500" : "bg-emerald-500"}`} />
+          {!checked ? "Checking…" : status === "down" ? "Backend offline" : "Live data"}
+        </button>
+        {status !== "down" && checked && (
+          <button
+            onClick={() => setOpen(!open)}
+            className="bo-panel rounded-full px-4 h-10 flex items-center gap-2 text-[13px] font-semibold bo-t1"
+          >
+            <Database size={15} className="bo-accent" /> {loadedCount} / {domains.length} Domains Active
+          </button>
+        )}
+      </div>
 
       {open && (
-        <div className="fixed bottom-16 left-[88px] z-[150] w-[360px] max-h-[70vh] overflow-y-auto glass-morphism bo-card rounded-2xl p-4 shadow-2xl">
+        <div className="fixed bottom-[68px] left-[96px] z-[150] w-[360px] max-h-[70vh] overflow-y-auto glass-morphism bo-card rounded-2xl p-4 shadow-2xl">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-[11px] font-black tracking-[0.2em] uppercase bo-ink">Data status</h3>
             <div className="flex gap-1">

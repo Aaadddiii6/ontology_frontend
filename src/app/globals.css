@@ -36,20 +36,9 @@ body.night-mode {
   color: #f8fafc;
 }
 
-/* Fix readability in day mode */
-.day-mode nav,
-.day-mode aside {
-  background: rgba(255, 255, 255, 0.8) !important;
-  backdrop-filter: blur(24px) !important;
-  border-color: rgba(0, 0, 0, 0.1) !important;
-}
+/* (removed: day-mode !important overrides; components now use --bo-* tokens) */
 
-.day-mode nav span,
-.day-mode nav button,
-.day-mode aside span,
-.day-mode aside .text-white {
-  color: #0f172a !important;
-}
+/* (removed: day-mode !important overrides; components now use --bo-* tokens) */
 
 .day-mode .text-slate-400,
 .day-mode .text-slate-500 {
@@ -205,3 +194,72 @@ canvas {
 .day-mode .bo-field { background: #ffffff; color: #0f172a; border-color: rgba(15, 23, 42, 0.15); }
 .day-mode .bo-field option, .day-mode .bo-field optgroup { background: #ffffff; color: #0f172a; }
 
+/* ═══════════════════════════════════════════════════════════════════
+   Blue-Orbit design tokens (day + night). Every new surface reads these,
+   so switching mode restyles the whole app consistently.
+   ═══════════════════════════════════════════════════════════════════ */
+:root,
+body.night-mode {
+  --bo-bg-0: #040a18;
+  --bo-bg-1: #0a1733;
+  --bo-surface: rgba(9, 20, 44, 0.78);
+  --bo-surface-strong: rgba(10, 23, 50, 0.92);
+  --bo-border: rgba(96, 165, 250, 0.16);
+  --bo-text: #e8f0ff;
+  --bo-text-2: #a8badb;
+  --bo-text-3: #6b82a8;
+  --bo-accent: #2f7cf6;
+  --bo-accent-soft: rgba(47, 124, 246, 0.16);
+  --bo-chip: rgba(255, 255, 255, 0.04);
+  --bo-land: #1b3f8f;
+  --bo-land-hi: #2d63d8;
+  --bo-land-stroke: rgba(125, 180, 255, 0.55);
+  --bo-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+}
+body.day-mode {
+  --bo-bg-0: #eef5ff;
+  --bo-bg-1: #d9e9ff;
+  --bo-surface: rgba(255, 255, 255, 0.86);
+  --bo-surface-strong: rgba(255, 255, 255, 0.96);
+  --bo-border: rgba(29, 78, 216, 0.12);
+  --bo-text: #0b1a38;
+  --bo-text-2: #3f5479;
+  --bo-text-3: #7286a8;
+  --bo-accent: #1d4ed8;
+  --bo-accent-soft: rgba(29, 78, 216, 0.1);
+  --bo-chip: rgba(29, 78, 216, 0.05);
+  --bo-land: #9cc1f5;
+  --bo-land-hi: #2f6ad9;
+  --bo-land-stroke: rgba(255, 255, 255, 0.95);
+  --bo-shadow: 0 12px 36px rgba(29, 78, 216, 0.1);
+}
+body.night-mode,
+body.day-mode {
+  background: linear-gradient(180deg, var(--bo-bg-0), var(--bo-bg-1));
+  color: var(--bo-text);
+}
+
+.bo-panel {
+  background: var(--bo-surface);
+  border: 1px solid var(--bo-border);
+  box-shadow: var(--bo-shadow);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+.bo-panel-strong { background: var(--bo-surface-strong); border: 1px solid var(--bo-border); box-shadow: var(--bo-shadow); }
+.bo-t1 { color: var(--bo-text); }
+.bo-t2 { color: var(--bo-text-2); }
+.bo-t3 { color: var(--bo-text-3); }
+.bo-accent { color: var(--bo-accent); }
+.bo-bg-accent { background: var(--bo-accent); color: #fff; }
+.bo-chip { background: var(--bo-chip); border: 1px solid var(--bo-border); }
+.bo-divider { border-color: var(--bo-border); }
+
+/* toggle switch */
+.bo-switch { position: relative; width: 34px; height: 20px; border-radius: 999px; background: var(--bo-chip); border: 1px solid var(--bo-border); transition: background .2s; flex-shrink: 0; }
+.bo-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 999px; background: var(--bo-text-3); transition: transform .2s, background .2s; }
+.bo-switch[data-on="true"] { background: var(--bo-accent); border-color: transparent; }
+.bo-switch[data-on="true"]::after { transform: translateX(14px); background: #fff; }
+
+/* map glow in night mode only (one filter on the whole group, cheap) */
+body.night-mode .countries { filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.35)); }

@@ -17,6 +17,8 @@ interface RelationsLayerProps {
   relations?: RelationEdge[];
   /** Pan/zoom of the flat map, so lines stay on their countries */
   zoom?: { k: number; x: number; y: number };
+  /** 0..1 multiplier from the "Links opacity" slider */
+  opacity?: number;
 }
 
 // Animating hundreds of SVG paths kills the frame rate; only the strongest
@@ -32,7 +34,9 @@ const RelationsLayer: React.FC<RelationsLayerProps> = ({
   dimensions,
   relations,
   zoom,
+  opacity = 0.6,
 }) => {
+  const op = Math.max(0.1, Math.min(1, opacity)) / 0.6;
   const [hover, setHover] = useState<{ label: string; x: number; y: number; color: string } | null>(null);
   const moduleConfig = MODULE_CONFIGS[activeModule] || MODULE_CONFIGS.overview;
 
@@ -105,14 +109,14 @@ const RelationsLayer: React.FC<RelationsLayerProps> = ({
             <g transform={zoom ? `translate(${zoom.x},${zoom.y}) scale(${zoom.k})` : undefined}>
             {paths.map((p) => (
               <g key={p.key}>
-                <path d={p.d} fill="none" vectorEffect="non-scaling-stroke" stroke={p.color} strokeWidth={p.w} strokeOpacity={p.animate ? 0.3 : 0.18} />
+                <path d={p.d} fill="none" vectorEffect="non-scaling-stroke" stroke={p.color} strokeWidth={p.w} strokeOpacity={Math.min(1, (p.animate ? 0.3 : 0.18) * op)} />
                 {p.animate && (
                   <path
                     d={p.d}
                     fill="none"
                     stroke={p.color}
                     strokeWidth={p.w}
-                    strokeOpacity={0.75}
+                    strokeOpacity={Math.min(1, 0.75 * op)}
                     vectorEffect="non-scaling-stroke"
                     strokeDasharray="6 14"
                     className="bo-flow"

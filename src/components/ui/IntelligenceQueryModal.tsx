@@ -1,15 +1,32 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, X, Cpu, Command, ArrowRight } from "lucide-react";
 import { queryIntelligenceAction } from "../../app/actions/simulate";
 
-export const IntelligenceQueryModal: React.FC = () => {
+export const IntelligenceQueryModal: React.FC<{ showTrigger?: boolean }> = ({ showTrigger = true }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [response, setResponse] = useState<any | null>(null);
+
+  // Opened by the navbar search pill, or Ctrl/Cmd+K anywhere; Esc closes.
+  useEffect(() => {
+    const open = () => setIsOpen(true);
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsOpen(true);
+      } else if (e.key === "Escape") setIsOpen(false);
+    };
+    window.addEventListener("openIntelligenceSearch", open);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("openIntelligenceSearch", open);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
 
   const handleQuery = async () => {
     if (!query.trim() || isLoading) return;
@@ -30,6 +47,7 @@ export const IntelligenceQueryModal: React.FC = () => {
   return (
     <>
       {/* Trigger Button */}
+      {showTrigger && (
       <motion.button
         onClick={() => setIsOpen(true)}
         whileHover={{ scale: 1.05 }}
@@ -42,6 +60,7 @@ export const IntelligenceQueryModal: React.FC = () => {
         </div>
         Query Intelligence
       </motion.button>
+      )}
 
       {/* Modal */}
       <AnimatePresence>

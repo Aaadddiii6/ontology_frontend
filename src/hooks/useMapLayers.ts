@@ -18,7 +18,7 @@ import type { ActiveModule, RelationEdge } from "@/types";
 export const DEFAULT_LAYERS: Record<ActiveModule, string[]> = {
   overview: ["trade", "alignment", "sanctions"],
   economy: ["trade", "energy", "dependency"],
-  defence: ["alliances", "arms", "sanctions"],
+  defence: ["arms_trade", "alliances", "sanctions"],
   geopolitics: ["alignment", "opposition", "diplomacy"],
   climate: ["climate_risk", "energy"],
   simulator: [],
