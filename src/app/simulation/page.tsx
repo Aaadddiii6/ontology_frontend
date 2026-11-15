@@ -140,9 +140,14 @@ export default function SimulationPage() {
                 className="flex flex-col h-full w-full overflow-y-auto custom-scrollbar"
               >
                 <div className="p-6 border-b border-white/10">
-                  <h2 className="text-[11px] font-black tracking-[0.2em] text-indigo-500 uppercase flex items-center gap-2 mb-4">
-                    <Activity size={14} /> Scenario simulator
-                  </h2>
+                  <div className="relative -mx-6 -mt-6 mb-5 px-6 py-6 bo-hero-art overflow-hidden">
+                    <h2 className="text-[22px] font-black tracking-tight bo-hero-title flex items-center gap-2">
+                      <Activity size={20} /> Scenario simulator
+                    </h2>
+                    <p className="text-[12px] bo-hero-sub mt-1">
+                      What happens if…? Every number is computed from the knowledge graph.
+                    </p>
+                  </div>
                   <ScenarioControls
                     mode={mode}
                     onModeChange={setMode}

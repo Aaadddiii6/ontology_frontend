@@ -270,6 +270,7 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
           exit={{ y: -12, opacity: 0 }}
           className="fixed left-[88px] right-4 top-[76px] z-40 bo-panel rounded-2xl px-2 py-2 flex items-stretch overflow-x-auto no-scrollbar"
         >
+          <div className="absolute inset-y-0 right-0 w-[38%] rounded-r-2xl bo-banner-art pointer-events-none" aria-hidden />
           {isOffline && (
             <div className="flex items-center gap-2 px-4 text-[11px] font-bold text-rose-500">
               <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" /> Backend offline
@@ -297,7 +298,7 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
             );
           })}
           {builtAt && (
-            <div className="flex items-center gap-3 px-5 py-1.5 border-l bo-divider ml-auto shrink-0">
+            <div className="relative flex items-center gap-3 px-5 py-1.5 border-l bo-divider ml-auto shrink-0 rounded-xl" style={{ background: "var(--bo-surface)" }}>
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
               <span className="flex flex-col">
                 <span className="text-[11px] bo-t3">Last data update</span>

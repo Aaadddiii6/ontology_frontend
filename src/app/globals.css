@@ -263,3 +263,41 @@ body.day-mode {
 
 /* map glow in night mode only (one filter on the whole group, cheap) */
 body.night-mode .countries { filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.35)); }
+
+/* ── Artwork (public/assets, cropped WebP, ~50 KB total) ─────────────────
+   Longhand properties on purpose: the CSS pipeline dropped the
+   `background:` shorthand with url() + size, leaving background-image: none. */
+.bo-sidebar-art {
+  background-image: url("/assets/sidebar-dark.webp");
+  background-position: center bottom;
+  background-size: 100% auto;
+  background-repeat: no-repeat;
+}
+body.day-mode .bo-sidebar-art { background-image: url("/assets/sidebar-light.webp"); }
+
+.bo-banner-art { display: none; }
+body.day-mode .bo-banner-art {
+  display: block;
+  background-image: url("/assets/earth-banner.webp");
+  background-position: right center;
+  background-size: auto 100%;
+  background-repeat: no-repeat;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 45%);
+  mask-image: linear-gradient(90deg, transparent, #000 45%);
+}
+
+.bo-hero-art {
+  background-image: url("/assets/hero-dark.webp");
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  --bo-hero-text: #ffffff;
+  --bo-hero-sub: rgba(255, 255, 255, 0.85);
+}
+body.day-mode .bo-hero-art {
+  background-image: url("/assets/hero-light.webp");
+  --bo-hero-text: #0b1a38;
+  --bo-hero-sub: #3f5479;
+}
+.bo-hero-title { color: var(--bo-hero-text); }
+.bo-hero-sub { color: var(--bo-hero-sub); }

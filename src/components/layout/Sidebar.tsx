@@ -25,7 +25,8 @@ const Sidebar: React.FC<SidebarProps> = () => {
       className="group fixed left-0 top-[64px] bottom-0 z-[90] w-[72px] hover:w-[200px] transition-[width] duration-300 overflow-hidden border-r bo-divider"
       style={{ background: "var(--bo-surface-strong)", backdropFilter: "blur(18px)" }}
     >
-      <div className="flex flex-col h-full py-5 px-3 gap-1.5">
+      <div className="absolute inset-x-0 bottom-0 h-[55%] bo-sidebar-art opacity-90 pointer-events-none" aria-hidden />
+      <div className="relative flex flex-col h-full py-5 px-3 gap-1.5">
         {NAV.map(({ href, label, Icon }) => {
           const active = pathname === href;
           return (
