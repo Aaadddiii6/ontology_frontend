@@ -186,3 +186,22 @@ canvas {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
 }
+
+/* ── Blue-Orbit theme-aware tokens (work in day AND night mode) ──────────────
+   New panels use these instead of hardcoded text-white, which disappears on
+   the light day-mode background. */
+.bo-ink { color: #f8fafc; }
+.bo-sub { color: #cbd5e1; }
+.bo-faint { color: #94a3b8; }
+.bo-card { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); }
+.bo-track { background: rgba(255, 255, 255, 0.1); }
+.bo-field { background: rgba(15, 23, 42, 0.6); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.12); }
+.bo-field option, .bo-field optgroup { background: #0f172a; color: #f8fafc; }
+.day-mode .bo-ink { color: #0f172a; }
+.day-mode .bo-sub { color: #334155; }
+.day-mode .bo-faint { color: #64748b; }
+.day-mode .bo-card { background: rgba(255, 255, 255, 0.72); border-color: rgba(15, 23, 42, 0.08); }
+.day-mode .bo-track { background: rgba(15, 23, 42, 0.08); }
+.day-mode .bo-field { background: #ffffff; color: #0f172a; border-color: rgba(15, 23, 42, 0.15); }
+.day-mode .bo-field option, .day-mode .bo-field optgroup { background: #ffffff; color: #0f172a; }
+

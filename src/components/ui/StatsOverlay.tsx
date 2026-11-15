@@ -2,7 +2,8 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ActiveModule, CountryProfile } from "../../types";
 import {
-  fetchCoverageStats,
+
+  fetchHealth,
   fetchGlobalRiskRanking,
   fetchEconomyInfluenceRanking,
   fetchDefenseGlobalTotals,
@@ -51,47 +52,43 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
   const refreshData = async () => {
     try {
       if (activeModule === "overview") {
-        const [coverage, riskRanking, tradePairs] = await Promise.all([
-          fetchCoverageStats(),
+        const [health, riskRanking, tradePairs] = await Promise.all([
+          fetchHealth(),
           fetchGlobalRiskRanking(),
           fetchEconomyTopTradePairs(),
         ]);
 
-        if (!coverage && !riskRanking && !tradePairs) {
-          setIsOffline(true);
-        } else {
-          setIsOffline(false);
-        }
+        setIsOffline(!health && !riskRanking && !tradePairs);
 
-        const total = coverage?.total_countries ?? profileMap.size ?? 261;
-        const stability =
-          total > 0 ? ((coverage?.has_global_risk ?? 0) / total) * 100 : 0;
-        const riskArray = Array.isArray(riskRanking)
-          ? riskRanking
-          : riskRanking?.data;
-        const threats = Array.isArray(riskArray)
-          ? riskArray.filter((c: any) => (c.global_risk ?? 0) > 0.45).length
+        const graph = health?.graph;
+        const riskArray = Array.isArray(riskRanking) ? riskRanking : riskRanking?.data;
+        const scored = Array.isArray(riskArray) ? riskArray.length : 0;
+        const highRisk = Array.isArray(riskArray)
+          ? riskArray.filter((c: { global_risk?: number }) => (c.global_risk ?? 0) > 0.45).length
           : 0;
-        const nodes = coverage?.has_influence ?? coverage?.has_global_risk ?? 0;
-        const totalPairs = (tradePairs || []).length;
+        const totalPairs = Array.isArray(tradePairs) ? tradePairs.length : 0;
 
+        // Every tile is a count straight from the graph. No invented trend
+        // deltas: the graph stores no history of these counts to compare to.
         setStats([
           {
-            label: "Global Stability",
-            value: `${stability.toFixed(1)}%`,
-            delta: "+1.2%",
+            label: "Countries in graph",
+            value: (graph?.countries ?? 0).toLocaleString(),
             icon: "🌐",
           },
-          { label: "Active Threats", value: threats, delta: "-3", icon: "⚔" },
           {
-            label: "Intelligence Nodes",
-            value: (nodes || 0).toLocaleString(),
-            delta: "+42",
+            label: scored ? `High risk (of ${scored} scored)` : "High risk countries",
+            value: scored ? highRisk : "—",
+            icon: "⚔",
+          },
+          {
+            label: "Graph relationships",
+            value: (graph?.total_relationships ?? 0).toLocaleString(),
             icon: "📊",
           },
           {
-            label: "Trade Pairs Built",
-            value: (totalPairs || 0).toLocaleString(),
+            label: "Trade pairs",
+            value: totalPairs ? totalPairs.toLocaleString() : "—",
             icon: "⚡",
           },
         ]);

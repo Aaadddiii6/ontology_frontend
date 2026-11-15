@@ -20,6 +20,12 @@ interface GlobeMapProps {
   relations?: RelationEdge[];
   countryCoords?: Map<string, [number, number]>;
   simulationResults?: Record<string, "critical" | "high" | "medium" | "low">;
+  /** ISO numeric (zero-padded) -> fill colour; overrides tab colouring */
+  fillByIso?: Map<string, string>;
+  /** ISO numeric -> graph country name (exact join) */
+  isoToName?: Map<string, string>;
+  /** ISO numeric -> [lon, lat] centroid, used to place relation arcs */
+  isoCoords?: Map<string, [number, number]>;
 }
 
 const geoCoordsTo3d = (
@@ -46,6 +52,9 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
   relations = [],
   countryCoords,
   simulationResults,
+  fillByIso,
+  isoToName,
+  isoCoords,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -69,6 +78,22 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
   useEffect(() => {
     visibleRef.current = visible;
   }, [visible]);
+
+  // The scene + mouse handlers are created once; keep the latest callbacks in
+  // refs, otherwise clicks call the first-render handler, whose country list
+  // was still empty (so the panel never opened).
+  const onClickRef = useRef(onCountryClick);
+  const onHoverRef = useRef(onCountryHover);
+  useEffect(() => {
+    onClickRef.current = onCountryClick;
+    onHoverRef.current = onCountryHover;
+  }, [onCountryClick, onCountryHover]);
+
+  const zoomBy = useCallback((factor: number) => {
+    const cam = cameraRef.current;
+    if (!cam) return;
+    cam.position.z = Math.max(150, Math.min(700, cam.position.z * factor));
+  }, []);
 
   // ── Helpers ───────────────────────────────────────────────
   const getGeoCoords = useCallback(
@@ -209,6 +234,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
 
       (countries as any).features.forEach((feature: any) => {
         const rawName: string = feature.properties?.name ?? "";
+        const iso: string | null = feature.id != null ? String(feature.id).padStart(3, "0") : null;
         const apiName = normalizeCountryName(rawName) ?? rawName;
 
         const profile = profileMap.get(apiName);
@@ -267,7 +293,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
               polygonOffsetUnits: -1,
             }),
           );
-          shapeMesh.userData = { apiName, isCountry: true, isShape: true };
+          shapeMesh.userData = { apiName, iso, isCountry: true, isShape: true };
           countryMeshesRef.current.add(shapeMesh);
 
           // Outline
@@ -283,7 +309,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
               opacity: 0.15,
             }),
           );
-          line.userData = { apiName, isCountry: true };
+          line.userData = { apiName, iso, isCountry: true };
           countryMeshesRef.current.add(line);
         });
 
@@ -399,7 +425,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
         const name: string = hit.object.userData.apiName;
         if (name !== lastHovered.current) {
           lastHovered.current = name;
-          onCountryHover(name);
+          onHoverRef.current(name);
           // Highlight
           countryMeshesRef.current.children.forEach((obj) => {
             const isThis = obj.userData.apiName === name;
@@ -428,7 +454,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
         }
       } else if (lastHovered.current) {
         lastHovered.current = null;
-        onCountryHover(null);
+        onHoverRef.current(null);
         countryMeshesRef.current.children.forEach((obj) => {
           if (
             obj instanceof THREE.Mesh &&
@@ -458,13 +484,32 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
         Math.abs(e.clientX - mouseDownPos.current.x) < 6 &&
         Math.abs(e.clientY - mouseDownPos.current.y) < 6;
       const quick = Date.now() - mouseDownTime.current < 300;
-      if (moved && quick && lastHovered.current) {
-        onCountryClick(lastHovered.current);
+      if (moved && quick && cameraRef.current && e.target === rendererRef.current?.domElement) {
+        const rect = container.getBoundingClientRect();
+        const ray = new THREE.Raycaster();
+        ray.setFromCamera(
+          new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1,
+          ),
+          cameraRef.current,
+        );
+        const hit = ray
+          .intersectObjects(countryMeshesRef.current.children, false)
+          .find((h) => h.object.userData?.isShape || h.object.userData?.isDot);
+        const name: string | undefined = hit?.object.userData.apiName ?? lastHovered.current ?? undefined;
+        if (name) onClickRef.current(name);
       }
       isDragging.current = false;
       container.style.cursor = "grab";
     };
 
+    const onWheel = (e: WheelEvent) => {
+      if (!visibleRef.current || !cameraRef.current) return;
+      e.preventDefault();
+      cameraRef.current.position.z = Math.max(150, Math.min(700, cameraRef.current.position.z * (e.deltaY > 0 ? 1.08 : 0.92)));
+    };
+    container.addEventListener("wheel", onWheel, { passive: false });
     container.addEventListener("mousedown", onDown);
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -472,6 +517,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
     return () => {
       cancelAnimationFrame(animFrameRef.current);
       ro.disconnect();
+      container.removeEventListener("wheel", onWheel);
       container.removeEventListener("mousedown", onDown);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
@@ -488,7 +534,11 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
     countryMeshesRef.current.children.forEach((obj) => {
       if (!obj.userData?.isCountry) return;
       const apiName: string = obj.userData.apiName;
-      let colorHex = colorForCountry(apiName);
+      const objIso: string | undefined = obj.userData.iso;
+      let colorHex =
+        fillByIso && fillByIso.size > 0
+          ? (objIso && fillByIso.get(objIso)) || "#94a3b8"
+          : colorForCountry(apiName);
       if (colorHex && colorHex.length > 7) colorHex = colorHex.substring(0, 7);
 
       const severity = simulationResults
@@ -535,39 +585,69 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
         obj.material.opacity = severity ? 0.8 : 0.3;
       }
     });
-  }, [colorForCountry, simulationResults]);
+  }, [colorForCountry, simulationResults, fillByIso, isoToName]);
+
+  // ── Canonical names from the graph (ISO join) ─────────────
+  useEffect(() => {
+    if (!isoToName || isoToName.size === 0) return;
+    countryMeshesRef.current.children.forEach((obj) => {
+      const iso: string | undefined = obj.userData?.iso;
+      if (iso && isoToName.has(iso)) obj.userData.apiName = isoToName.get(iso);
+    });
+  }, [isoToName]);
 
   // ── Update relations arcs ─────────────────────────────────
+  // THREE.Line instead of a TubeGeometry per arc: a tube is ~200 triangles,
+  // a line is one draw-cheap polyline, so 1,000+ arcs stay smooth.
   useEffect(() => {
+    relationsGroupRef.current.children.forEach((c) => {
+      if (c instanceof THREE.Line) {
+        c.geometry.dispose();
+        (c.material as THREE.Material).dispose();
+      }
+    });
     relationsGroupRef.current.clear();
     if (!showRelations || !relations.length) return;
 
-    relations.slice(0, 100).forEach((rel) => {
-      const sc = getGeoCoords(rel.fromCountry);
-      const ec = getGeoCoords(rel.toCountry);
+    const ranked = [...relations].sort((x, y) => (y.weight ?? 0) - (x.weight ?? 0)).slice(0, 1500);
+    ranked.forEach((rel) => {
+      const sc = (rel.fromIso && isoCoords?.get(rel.fromIso)) || getGeoCoords(rel.fromCountry);
+      const ec = (rel.toIso && isoCoords?.get(rel.toIso)) || getGeoCoords(rel.toCountry);
       if (!sc || !ec) return;
 
-      const start = geoCoordsTo3d(sc[0], sc[1], 101);
-      const end = geoCoordsTo3d(ec[0], ec[1], 101);
-      const mid = start.clone().lerp(end, 0.5).normalize().multiplyScalar(118);
-
+      const start = geoCoordsTo3d(sc[0], sc[1], 102.5);
+      const end = geoCoordsTo3d(ec[0], ec[1], 102.5);
+      const lift = 104 + Math.min(30, start.distanceTo(end) * 0.12);
+      const mid = start.clone().lerp(end, 0.5).normalize().multiplyScalar(lift);
       const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-      const geo = new THREE.TubeGeometry(curve, 24, 0.25, 4, false);
-      const mat = new THREE.MeshBasicMaterial({
+      const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(32));
+      const mat = new THREE.LineBasicMaterial({
         color: (rel.moduleColor ?? "#6366f1").substring(0, 7),
         transparent: true,
-        opacity: Math.min(0.7, (rel.weight ?? 0.5) * 0.8),
+        opacity: 0.25 + Math.min(0.6, (rel.weight ?? 0.5) * 0.6),
       });
-      relationsGroupRef.current.add(new THREE.Mesh(geo, mat));
+      relationsGroupRef.current.add(new THREE.Line(geo, mat));
     });
-  }, [relations, showRelations, getGeoCoords]);
+  }, [relations, showRelations, getGeoCoords, isoCoords]);
 
   return (
-    <div
-      ref={containerRef}
-      className="relative w-full h-full"
-      style={{ cursor: "grab" }}
-    />
+    <div ref={containerRef} className="relative w-full h-full" style={{ cursor: "grab" }}>
+      <div className="absolute bottom-24 right-[84px] z-10 flex flex-col gap-1">
+        {[
+          ["+", 0.8, "Zoom in"],
+          ["−", 1.25, "Zoom out"],
+        ].map(([label, f, title]) => (
+          <button
+            key={label as string}
+            onClick={() => zoomBy(f as number)}
+            title={title as string}
+            className="w-9 h-9 rounded-lg glass-morphism bo-card bo-ink text-lg font-bold hover:bg-indigo-500/20"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 };
 

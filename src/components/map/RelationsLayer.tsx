@@ -11,36 +11,44 @@ interface RelationsLayerProps {
   isVisible: boolean;
   onToggle: () => void;
   countryCoords?: Map<string, [number, number]>;
+  /** ISO numeric (zero-padded) -> [lon, lat]; preferred over name lookup */
+  isoCoords?: Map<string, [number, number]>;
   dimensions: { width: number; height: number };
   relations?: RelationEdge[];
+  /** Pan/zoom of the flat map, so lines stay on their countries */
+  zoom?: { k: number; x: number; y: number };
 }
+
+// Animating hundreds of SVG paths kills the frame rate; only the strongest
+// links get the moving dash, the rest are static.
+const ANIMATED_LINKS = 150;
+const MAX_LINKS = 2500;
 
 const RelationsLayer: React.FC<RelationsLayerProps> = ({
   activeModule,
-  profileMap,
   isVisible,
   countryCoords,
+  isoCoords,
   dimensions,
   relations,
+  zoom,
 }) => {
-  const [hoveredPoint, setHoveredPoint] = useState<string | null>(null);
-
+  const [hover, setHover] = useState<{ label: string; x: number; y: number; color: string } | null>(null);
   const moduleConfig = MODULE_CONFIGS[activeModule] || MODULE_CONFIGS.overview;
 
-  // ── Projection — must exactly match HexMap.tsx ──────────────
+  // Projection must exactly match HexMap.tsx
   const projection = useMemo(() => {
     if (dimensions.width <= 0 || dimensions.height <= 0) return null;
     const proj = d3.geoNaturalEarth1();
-    proj.fitSize([dimensions.width, dimensions.height], {
-      type: "Sphere",
-    } as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- d3 accepts a Sphere object here
+    proj.fitSize([dimensions.width, dimensions.height], { type: "Sphere" } as any);
     const [tx, ty] = proj.translate();
-    proj.translate([tx, ty + 40]); // ← same +40 offset as HexMap
+    proj.translate([tx, ty + 40]);
     return proj;
   }, [dimensions.width, dimensions.height]);
 
-  // ── Coordinate lookup (prioritise centroid map, fall back to static) ──
-  const getCoords = (name: string): [number, number] | null => {
+  const getCoords = (name: string, iso?: string | null): [number, number] | null => {
+    if (iso && isoCoords?.has(iso)) return isoCoords.get(iso)!;
     if (countryCoords?.has(name)) return countryCoords.get(name)!;
     const norm = normalizeCountryName(name);
     if (norm && countryCoords?.has(norm)) return countryCoords.get(norm)!;
@@ -49,78 +57,40 @@ const RelationsLayer: React.FC<RelationsLayerProps> = ({
     return null;
   };
 
-  // ── Project a lon/lat to SVG pixel ─────────────────────────
-  const project = (geo: [number, number]) => {
-    if (!projection) return { x: 0, y: 0 };
-    const pt = projection(geo);
-    return pt ? { x: pt[0], y: pt[1] } : { x: 0, y: 0 };
-  };
-
-  // ── Resolve relations to render ────────────────────────────
-  const renderedRelations = useMemo(() => {
-    if (!relations || relations.length === 0) return [];
-    return relations
-      .slice(0, 120)
-      .map((rel) => {
-        const sc = getCoords(rel.fromCountry);
-        const ec = getCoords(rel.toCountry);
-        if (!sc || !ec) return null;
-        return { ...rel, sc, ec };
-      })
-      .filter(Boolean) as (RelationEdge & {
-      sc: [number, number];
-      ec: [number, number];
-    })[];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [relations, countryCoords, dimensions]);
-
-  // ── Countries to show dots for ─────────────────────────────
-  const countryDots = useMemo(() => {
-    const dots: { name: string; geo: [number, number]; score: number }[] = [];
-    // Use the centroid map if available (most accurate), else static
-    const source:
-      | Map<string, [number, number]>
-      | Record<string, [number, number]> =
-      countryCoords && countryCoords.size > 0 ? countryCoords : COUNTRY_COORDS;
-
-    const entries =
-      source instanceof Map ? [...source.entries()] : Object.entries(source);
-
-    entries.forEach(([name, geo]) => {
-      const profile = profileMap.get(name);
-      const score = (() => {
-        if (!profile) return 0.3;
-        switch (activeModule) {
-          case "defence":
-            return profile.military_strength ?? 0.3;
-          case "economy":
-            // Normalize defense_spending (in millions USD) to a 0-1 score
-            const spendingScore = (profile.defense_spending || 0) / 1000000;
-            return Math.min(
-              1,
-              (profile.arms_export ?? 0) * 0.5 + spendingScore * 0.5,
-            );
-          case "geopolitics":
-            return profile.diplomatic_centrality ?? 0.3;
-          case "climate":
-            return (
-              (profile.live_risk ?? 0) * 0.7 +
-              (profile.conflict_risk ?? 0) * 0.3
-            );
-          default:
-            return profile.defense_composite ?? 0.3;
-        }
-      })();
-      dots.push({ name, geo: geo as [number, number], score });
+  const paths = useMemo(() => {
+    if (!projection || !relations?.length) return [];
+    const ranked = [...relations].sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0)).slice(0, MAX_LINKS);
+    const out: { d: string; w: number; color: string; label: string; animate: boolean; key: string }[] = [];
+    ranked.forEach((rel, i) => {
+      const sc = getCoords(rel.fromCountry, rel.fromIso);
+      const ec = getCoords(rel.toCountry, rel.toIso);
+      if (!sc || !ec) return;
+      const s = projection(sc);
+      const e = projection(ec);
+      if (!s || !e) return;
+      const dx = e[0] - s[0];
+      const dy = e[1] - s[1];
+      const dr = Math.sqrt(dx * dx + dy * dy);
+      const cx = (s[0] + e[0]) / 2;
+      const cy = (s[1] + e[1]) / 2 - dr * 0.18;
+      out.push({
+        d: `M ${s[0]} ${s[1]} Q ${cx} ${cy} ${e[0]} ${e[1]}`,
+        w: Math.max(0.6, (rel.weight ?? 0.5) * 3),
+        color: (rel.moduleColor ?? moduleConfig.accent).substring(0, 7),
+        label: rel.label ?? `${rel.fromCountry} → ${rel.toCountry}`,
+        animate: i < ANIMATED_LINKS,
+        key: `${rel.layer ?? "x"}-${rel.fromCountry}-${rel.toCountry}-${i}`,
+      });
     });
-    return dots;
+    return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileMap, activeModule, countryCoords, dimensions]);
+  }, [relations, projection, countryCoords, isoCoords]);
 
   if (!projection || dimensions.width <= 0) return null;
 
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden">
+      <style>{`@keyframes bo-flow { to { stroke-dashoffset: -40; } } .bo-flow { animation: bo-flow 2.4s linear infinite; }`}</style>
       <AnimatePresence>
         {isVisible && (
           <motion.svg
@@ -132,162 +102,48 @@ const RelationsLayer: React.FC<RelationsLayerProps> = ({
             viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
             preserveAspectRatio="none"
           >
-            <defs>
-              <filter
-                id="arc-glow"
-                x="-20%"
-                y="-20%"
-                width="140%"
-                height="140%"
-              >
-                <feGaussianBlur stdDeviation="2" result="blur" />
-                <feComposite in="SourceGraphic" in2="blur" operator="over" />
-              </filter>
-              <filter
-                id="dot-glow"
-                x="-50%"
-                y="-50%"
-                width="200%"
-                height="200%"
-              >
-                <feGaussianBlur stdDeviation="3" result="blur" />
-                <feComposite in="SourceGraphic" in2="blur" operator="over" />
-              </filter>
-            </defs>
-
-            {/* ── Relation arcs ── */}
-            {renderedRelations.map((rel, i) => {
-              const s = project(rel.sc);
-              const e = project(rel.ec);
-              if (s.x === 0 && s.y === 0) return null;
-              if (e.x === 0 && e.y === 0) return null;
-
-              const dx = e.x - s.x;
-              const dy = e.y - s.y;
-              const dr = Math.sqrt(dx * dx + dy * dy);
-              const cx = (s.x + e.x) / 2;
-              const cy = (s.y + e.y) / 2 - dr * 0.18;
-              const path = `M ${s.x} ${s.y} Q ${cx} ${cy} ${e.x} ${e.y}`;
-              const w = Math.max(0.5, (rel.weight ?? 0.5) * 2.5);
-
-              // Use light green for economy lines to make them visible
-              const col =
-                activeModule === "economy"
-                  ? "#a7f3d0"
-                  : (rel.moduleColor ?? moduleConfig.accent);
-
-              return (
-                <g key={i}>
-                  {/* Glow halo */}
+            <g transform={zoom ? `translate(${zoom.x},${zoom.y}) scale(${zoom.k})` : undefined}>
+            {paths.map((p) => (
+              <g key={p.key}>
+                <path d={p.d} fill="none" vectorEffect="non-scaling-stroke" stroke={p.color} strokeWidth={p.w} strokeOpacity={p.animate ? 0.3 : 0.18} />
+                {p.animate && (
                   <path
-                    d={path}
+                    d={p.d}
                     fill="none"
-                    stroke={col}
-                    strokeWidth={w + 2}
-                    strokeOpacity={0.08}
-                    filter="url(#arc-glow)"
-                  />
-                  {/* Base line */}
-                  <path
-                    d={path}
-                    fill="none"
-                    stroke={col}
-                    strokeWidth={w}
-                    strokeOpacity={0.25}
-                  />
-                  {/* Animated dash */}
-                  <motion.path
-                    d={path}
-                    fill="none"
-                    stroke={col}
-                    strokeWidth={w}
-                    strokeOpacity={0.6}
+                    stroke={p.color}
+                    strokeWidth={p.w}
+                    strokeOpacity={0.75}
+                    vectorEffect="non-scaling-stroke"
                     strokeDasharray="6 14"
-                    animate={{ strokeDashoffset: [0, -40] }}
-                    transition={{
-                      duration: 2.5,
-                      repeat: Infinity,
-                      ease: "linear",
-                    }}
+                    className="bo-flow"
                   />
-                </g>
-              );
-            })}
-
-            {/* ── Country dots ── */}
-            {countryDots.map(({ name, geo, score }) => {
-              const p = project(geo);
-              if (p.x === 0 && p.y === 0) return null;
-              const r = Math.max(2.5, Math.min(score * 18 + 2, 20));
-              const isHov = hoveredPoint === name;
-
-              return (
-                <g
-                  key={name}
+                )}
+                {/* wide invisible hit area so thin lines are hoverable */}
+                <path
+                  d={p.d}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={Math.max(6, p.w + 4)}
                   className="pointer-events-auto"
                   style={{ cursor: "help" }}
-                  onMouseEnter={() => setHoveredPoint(name)}
-                  onMouseLeave={() => setHoveredPoint(null)}
-                >
-                  {/* Pulse ring */}
-                  {isHov && (
-                    <motion.circle
-                      cx={p.x}
-                      cy={p.y}
-                      r={r + 6}
-                      fill="none"
-                      stroke={moduleConfig.accent}
-                      strokeWidth={1}
-                      strokeOpacity={0.5}
-                      animate={{ r: [r + 4, r + 10], opacity: [0.6, 0] }}
-                      transition={{ duration: 1, repeat: Infinity }}
-                    />
-                  )}
-                  <circle
-                    cx={p.x}
-                    cy={p.y}
-                    r={r}
-                    fill={moduleConfig.accent}
-                    fillOpacity={isHov ? 0.35 : 0.18}
-                    stroke={moduleConfig.accent}
-                    strokeWidth={isHov ? 1.5 : 0.8}
-                    strokeOpacity={0.7}
-                    filter={isHov ? "url(#dot-glow)" : undefined}
-                  />
-                  {/* Hover label */}
-                  {isHov && (
-                    <g>
-                      <rect
-                        x={p.x - 55}
-                        y={p.y - r - 34}
-                        width={110}
-                        height={26}
-                        rx={6}
-                        fill="rgba(15,23,42,0.95)"
-                        stroke="rgba(255,255,255,0.12)"
-                        strokeWidth={0.5}
-                      />
-                      <text
-                        x={p.x}
-                        y={p.y - r - 17}
-                        textAnchor="middle"
-                        fill="white"
-                        fontSize={9}
-                        fontWeight="700"
-                        fontFamily="monospace"
-                        className="select-none uppercase"
-                      >
-                        {name.split(",")[0].substring(0, 20)} —{" "}
-                        {(score * 100).toFixed(0)}%
-                      </text>
-                    </g>
-                  )}
-                </g>
-              );
-            })}
+                  onMouseMove={(ev) => setHover({ label: p.label, x: ev.clientX, y: ev.clientY, color: p.color })}
+                  onMouseLeave={() => setHover(null)}
+                />
+              </g>
+            ))}
+            </g>
           </motion.svg>
         )}
       </AnimatePresence>
+      {hover && (
+        <div
+          className="fixed z-[200] pointer-events-none max-w-[320px] px-3 py-2 rounded-lg text-[12px] font-medium text-white bg-slate-900/95 border border-white/15 shadow-xl"
+          style={{ left: hover.x + 14, top: hover.y + 14 }}
+        >
+          <span className="inline-block w-2 h-2 rounded-full mr-2 align-middle" style={{ background: hover.color }} />
+          {hover.label}
+        </div>
+      )}
     </div>
   );
 };

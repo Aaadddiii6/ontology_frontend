@@ -22,6 +22,13 @@ interface HexMapProps {
   activeModule: ActiveModule;
   onCountryHover: (name: string | null, position: HoverPosition | null) => void;
   onCountryClick: (name: string) => void;
+  /** ISO numeric (zero-padded) -> fill colour; overrides the tab colouring */
+  fillByIso?: Map<string, string>;
+  /** ISO numeric -> graph country name (exact join, no name guessing) */
+  isoToName?: Map<string, string>;
+  focusCountry?: string | null;
+  /** Reports pan/zoom so overlays (relation lines) can follow */
+  onZoom?: (t: { k: number; x: number; y: number }) => void;
 }
 
 const HexMap: React.FC<HexMapProps> = ({
@@ -29,7 +36,29 @@ const HexMap: React.FC<HexMapProps> = ({
   activeModule,
   onCountryHover,
   onCountryClick,
+  fillByIso,
+  isoToName,
+  focusCountry,
+  onZoom,
 }) => {
+  const zoomRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
+  const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  const onZoomRef = useRef(onZoom);
+  onZoomRef.current = onZoom;
+
+  const zoomButton = (factor: number | null) => {
+    const container = containerRef.current;
+    const zb = zoomBehaviorRef.current;
+    if (!container || !zb) return;
+    const svgSel = d3.select(container).select<SVGSVGElement>("svg");
+    if (factor === null) svgSel.transition().duration(400).call(zb.transform, d3.zoomIdentity);
+    else svgSel.transition().duration(300).call(zb.scaleBy, factor);
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- topojson feature
+  const nameOf = (d: any): string | null => {
+    const iso = d?.id != null ? String(d.id).padStart(3, "0") : null;
+    return (iso && isoToName?.get(iso)) || normalizeCountryName(d.properties.name);
+  };
   const containerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [tooltipName, setTooltipName] = useState<string | null>(null);
@@ -74,7 +103,21 @@ const HexMap: React.FC<HexMapProps> = ({
       projection.translate([tx, ty + 40]); // Increased push to match country centroids exactly
 
       svg.selectAll(".countries").remove();
-      const mapGroup = svg.append("g").attr("class", "countries");
+      const mapGroup = svg.append("g").attr("class", "countries").attr("transform", zoomRef.current.toString());
+
+      // Scroll / pinch / drag to zoom and pan (1x to 8x). The transform is
+      // kept in a ref so a re-render (tab change, new colours) keeps the view.
+      const zb = d3
+        .zoom<SVGSVGElement, unknown>()
+        .scaleExtent([1, 8])
+        .translateExtent([[0, 0], [width, height]])
+        .on("zoom", (ev) => {
+          zoomRef.current = ev.transform;
+          svg.select(".countries").attr("transform", ev.transform.toString());
+          onZoomRef.current?.({ k: ev.transform.k, x: ev.transform.x, y: ev.transform.y });
+        });
+      zoomBehaviorRef.current = zb;
+      svg.call(zb).on("dblclick.zoom", null);
 
       d3.json<any>("/data/countries-110m.json").then((worldData) => {
         if (!worldData) return;
@@ -90,7 +133,11 @@ const HexMap: React.FC<HexMapProps> = ({
           .join("path")
           .attr("d", pathGenerator as any)
           .attr("fill", (d: any) => {
-            const apiName = normalizeCountryName(d.properties.name);
+            const iso = d?.id != null ? String(d.id).padStart(3, "0") : null;
+            if (fillByIso && fillByIso.size > 0) {
+              return (iso && fillByIso.get(iso)) || "rgba(148,163,184,0.35)"; // no data = grey
+            }
+            const apiName = nameOf(d);
             if (activeModule === "overview") {
               return getOverviewColor(apiName);
             } else if (apiName) {
@@ -99,12 +146,15 @@ const HexMap: React.FC<HexMapProps> = ({
             }
             return "#9ab8a0";
           })
-          .attr("stroke", "rgba(255, 255, 255, 0.25)")
-          .attr("stroke-width", 0.6)
+          .attr("stroke", (d: any) =>
+            focusCountry && nameOf(d) === focusCountry ? "#6366f1" : "rgba(255, 255, 255, 0.25)",
+          )
+          .attr("stroke-width", (d: any) => (focusCountry && nameOf(d) === focusCountry ? 2.2 : 0.6))
+          .attr("vector-effect", "non-scaling-stroke")
           .style("cursor", "pointer")
           .style("transition", "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)")
           .on("mouseenter", function (event, d: any) {
-            const apiName = normalizeCountryName(d.properties.name);
+            const apiName = nameOf(d);
 
             d3.select(this)
               .attr("stroke", "rgba(255, 255, 255, 0.9)")
@@ -140,7 +190,7 @@ const HexMap: React.FC<HexMapProps> = ({
             onCountryHover(null, null);
           })
           .on("click", (event, d: any) => {
-            const apiName = normalizeCountryName(d.properties.name);
+            const apiName = nameOf(d);
             if (apiName) onCountryClick(apiName);
           });
       });
@@ -163,6 +213,9 @@ const HexMap: React.FC<HexMapProps> = ({
     getOverviewColor,
     onCountryClick,
     onCountryHover,
+    fillByIso,
+    isoToName,
+    focusCountry,
   ]);
 
   return (
@@ -170,6 +223,22 @@ const HexMap: React.FC<HexMapProps> = ({
       ref={containerRef}
       className="relative w-full h-full overflow-hidden bg-transparent"
     >
+      <div className="absolute bottom-24 right-[84px] z-[60] flex flex-col gap-1">
+        {([
+          ["+", 1.6, "Zoom in"],
+          ["−", 1 / 1.6, "Zoom out"],
+          ["⟲", null, "Reset view"],
+        ] as const).map(([label, f, title]) => (
+          <button
+            key={label}
+            onClick={() => zoomButton(f)}
+            title={title}
+            className="w-9 h-9 rounded-lg glass-morphism bo-card bo-ink text-lg font-bold hover:bg-indigo-500/20"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       {/* High-Fidelity Tooltip */}
       <AnimatePresence>
         {tooltipName && (

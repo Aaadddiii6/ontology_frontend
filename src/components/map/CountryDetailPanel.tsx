@@ -1,3 +1,4 @@
+import CountryIndicators from "@/components/map/CountryIndicators";
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ExternalLink } from "lucide-react";
@@ -543,6 +544,7 @@ const CountryDetailPanel: React.FC<CountryDetailPanelProps> = ({
                   )}
                 </div>
               )}
+              <CountryIndicators country={country} tab={currentTab} />
             </div>
           )}
         </div>
