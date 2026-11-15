@@ -255,7 +255,7 @@ const HexMap: React.FC<HexMapProps> = ({
       className="relative w-full h-full overflow-hidden bg-transparent"
     >
       {scaleBar && (
-        <div className="absolute bottom-[76px] left-6 z-[60] pointer-events-none">
+        <div className="absolute bottom-[76px] left-[344px] z-[60] pointer-events-none">
           <div className="relative h-4 text-[10px] bo-t2 whitespace-nowrap" style={{ width: scaleBar.px + 40 }}>
             <span className="absolute left-0">0</span>
             <span className="absolute -translate-x-1/2" style={{ left: scaleBar.px / 2 }}>{(scaleBar.km / 2).toLocaleString()}</span>
@@ -264,7 +264,7 @@ const HexMap: React.FC<HexMapProps> = ({
           <div className="h-1.5 border-x border-b" style={{ width: scaleBar.px, borderColor: "var(--bo-text-2)" }} />
         </div>
       )}
-      <div className="absolute bottom-[116px] left-6 z-[60] flex flex-col bo-panel rounded-xl overflow-hidden">
+      <div className="absolute bottom-[116px] left-[344px] z-[60] flex flex-col bo-panel rounded-xl overflow-hidden">
         {([
           ["+", 1.6, "Zoom in"],
           ["−", 1 / 1.6, "Zoom out"],

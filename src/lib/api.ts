@@ -766,3 +766,20 @@ export async function fetchCountryProfile(country: string): Promise<CountryProfi
     `${BASE_URL}/graph/country/${encodeURIComponent(country)}/profile`,
   );
 }
+
+// ─── Home insight cards (/graph/insights) ────────────────────────────────────
+export interface InsightCard {
+  id: string;
+  title: string;
+  kind: "bars" | "series" | "split";
+  unit: string;
+  source: string;
+  // bars/split: {label, value}[]; series: {label, unit, points: {x, y}[]}[]
+  data: unknown[];
+  error?: string;
+}
+
+export async function fetchInsights(module: string): Promise<InsightCard[]> {
+  const d = await fetchWithCache<{ cards: InsightCard[] }>(`insights-${module}`, `${BASE_URL}/graph/insights?module=${module}`);
+  return d?.cards ?? [];
+}

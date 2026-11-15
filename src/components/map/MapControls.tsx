@@ -90,7 +90,7 @@ export default function MapControls(p: Props) {
             ))}
           </div>
 
-          <div className="p-5 pt-3 space-y-4 max-h-[calc(100vh-430px)] overflow-y-auto">
+          <div className="p-5 pt-3 space-y-4 max-h-[calc(100vh-430px)] overflow-y-auto no-scrollbar">
             {p.focusCountry && (
               <div className="flex items-center justify-between rounded-xl px-3 py-2 bo-chip">
                 <span className="flex items-center gap-2 text-[12px] font-semibold bo-accent">

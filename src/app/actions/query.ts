@@ -1,6 +1,6 @@
 "use server";
 
-import { complete, parseJSONObject } from "@/lib/llm.server";
+import { askGraph } from "@/app/actions/simulate";
 
 // ─── Query Result Interface ──────────────────────────────────────────────────
 export interface QueryResult {
@@ -103,123 +103,13 @@ async function fetchFromBackend(endpoint: string, params: Record<string, unknown
 }
 
 // ─── Main Action ─────────────────────────────────────────────────────────────
+// Uses the backend query engine (/graph/ask) so this page and the search modal
+// give the same graph-grounded answers. Rows come back as a table + chart.
 export async function intelligenceQueryAction(question: string): Promise<QueryResult> {
-  try {
-    // 1. Route: the LLM picks endpoints + chart shape. Default routing if no LLM.
-    const routingPrompt = `You are the Global Intelligence Engine Router.
-Analyze the user question and select the most relevant API endpoints to fulfill the request.
-Available Endpoints:
-${AVAILABLE_ENDPOINTS}
-
-User Question: "${question}"
-
-Output STRICTLY JSON:
-{
-  "endpoints": ["/endpoint/path"],
-  "params": { "limit": 15 },
-  "chart_type": "bar" | "line" | "none",
-  "chart_x_key": "string",
-  "chart_y_key": "string",
-  "chart_title": "Descriptive Title",
-  "table_columns": [
-    { "key": "field", "label": "Label", "format": "pct" | "usd" | "number" | "text" }
-  ]
-}`;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- routing JSON comes from the LLM; fields are checked where used
-    let routing: any = null;
-    const routed = await complete([{ role: "user", content: routingPrompt }], {
-      json: true,
-      maxTokens: 400,
-    });
-    if (routed) routing = parseJSONObject(routed.text);
-    if (!routing || !Array.isArray(routing.endpoints) || routing.endpoints.length === 0) {
-      routing = DEFAULT_ROUTING;
-    }
-
-    // 2. Fetch data from the backend (graph).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous rows
-    const mergedData: any[] = [];
-    const endpointsCalled: string[] = [];
-
-    for (const ep of (routing.endpoints as string[]).slice(0, 3)) {
-      const data = await fetchFromBackend(ep, routing.params || {});
-      if (!data) continue;
-      endpointsCalled.push(ep);
-      const rawArr = Array.isArray(data)
-        ? data
-        : data.results || data.data || (typeof data === "object" ? [data] : []);
-      if (Array.isArray(rawArr)) {
-        // Flatten nested objects (macro, scores, ...) so columns are top-level
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see above
-        const flattened = rawArr.map((item: any) => {
-          const flat = { ...item };
-          for (const key of ["macro", "scores", "trends", "temperature", "profile"]) {
-            if (item[key] && typeof item[key] === "object") Object.assign(flat, item[key]);
-          }
-          return flat;
-        });
-        mergedData.push(...flattened);
-      }
-    }
-
-    // 3. Summarise. No data → no LLM report: an LLM asked for a report with
-    // no data invents one, which this project claims never to do.
-    const hasBackendData = mergedData.length > 0;
-    let summary: string;
-    let summaryBy = "template";
-    if (!hasBackendData) {
-      summary =
-        "No graph data answered this question. Either the backend is not running on port 8000, " +
-        "or the pipeline for this domain has not been loaded yet (check the Data status panel).";
-    } else {
-      const summaryPrompt = `You are a Senior Geopolitical Analyst at the Global Intelligence Engine.
-The user asked: "${question}"
-
-Intelligence data from the knowledge graph:
-${JSON.stringify(mergedData.slice(0, 30)).slice(0, 12000)}
-
-Write the report:
-1. 3-4 paragraphs with sections "STRATEGIC OVERVIEW", "KEY METRICS ANALYSIS" and "OUTLOOK".
-2. Reference specific numbers and country names from the data.
-3. Use ONLY numbers that appear in the data. Never invent or estimate figures that are not there.
-   If the data does not answer part of the question, say which part.
-4. Do NOT mention "JSON", "API", or "Backend".`;
-      const reply = await complete([{ role: "user", content: summaryPrompt }], { maxTokens: 900 });
-      if (reply && reply.text.trim().length >= 50) {
-        summary = reply.text.trim();
-        summaryBy = reply.provider;
-      } else {
-        summary =
-          `Retrieved ${mergedData.length} rows from ${endpointsCalled.join(", ")}. ` +
-          "No language model is configured (set OPENAI_API_KEY), so the data is shown without a written analysis.";
-      }
-    }
-
-    // Confidence = share of returned rows that actually carry the charted value.
-    const yKey: string | undefined = routing.chart_y_key;
-    const rowsWithValue = yKey
-      ? mergedData.filter((r) => r?.[yKey] !== null && r?.[yKey] !== undefined).length
-      : mergedData.length;
-    const confidence = hasBackendData ? Math.round((rowsWithValue / mergedData.length) * 100) : 0;
-
+  const r = await askGraph(question);
+  if (r.error) {
     return {
-      summary,
-      endpoints_called: endpointsCalled,
-      data: mergedData.slice(0, 50),
-      chart_type: routing.chart_type || "none",
-      chart_x_key: routing.chart_x_key,
-      chart_y_key: routing.chart_y_key,
-      chart_title: routing.chart_title,
-      table_columns: routing.table_columns || [],
-      confidence,
-      is_fallback: !hasBackendData,
-      summary_by: summaryBy,
-    };
-  } catch (error: unknown) {
-    console.error("Intelligence Query Action failed:", error);
-    return {
-      summary: "An error occurred during query processing.",
+      summary: r.error,
       endpoints_called: [],
       data: [],
       chart_type: "none",
@@ -228,7 +118,31 @@ Write the report:
       chart_title: "",
       table_columns: [],
       confidence: 0,
-      error: error instanceof Error ? error.message : "Unknown error",
+      is_fallback: true,
+      error: r.error,
     };
   }
+  const textCol = r.columns.find((c) => c.format === "text")?.key ?? "";
+  const valueCol =
+    r.columns.find((c) => c.key === "value")?.key ?? r.columns.find((c) => c.format === "number")?.key ?? "";
+  const rowsWithValue = valueCol
+    ? r.rows.filter((row) => row[valueCol] !== null && row[valueCol] !== undefined).length
+    : r.rows.length;
+  return {
+    summary: r.synthesized_answer,
+    endpoints_called: r.endpoints,
+    data: r.rows,
+    chart_type: textCol && valueCol && r.rows.length > 1 ? "bar" : "none",
+    chart_x_key: textCol,
+    chart_y_key: valueCol,
+    chart_title: r.metric_label ?? "",
+    table_columns: r.columns.map((c) => ({
+      key: c.key,
+      label: c.label,
+      format: c.format === "text" ? ("text" as const) : /USD/.test(c.label) ? ("usd" as const) : ("number" as const),
+    })),
+    confidence: r.rows.length ? Math.round((rowsWithValue / r.rows.length) * 100) : 0,
+    is_fallback: r.rows.length === 0,
+    summary_by: r.answered_by,
+  };
 }

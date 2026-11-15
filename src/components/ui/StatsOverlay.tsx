@@ -5,6 +5,7 @@ import { ActiveModule, CountryProfile } from "../../types";
 import {
 
   fetchHealth,
+  fetchInsights,
   fetchGlobalRiskRanking,
   fetchEconomyInfluenceRanking,
   fetchDefenseGlobalTotals,
@@ -98,7 +99,12 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
           },
         ]);
       } else if (activeModule === "defence") {
-        const defenseData = await fetchDefenseGlobalTotals();
+        const [defenseData, defenceCards] = await Promise.all([fetchDefenseGlobalTotals(), fetchInsights("defence")]);
+        // Arms trade value, latest year (customs data via /graph/insights)
+        const armsSeries = (defenceCards.find((cd) => cd.id === "arms_trend")?.data?.[0] ?? null) as
+          | { points: { x: number; y: number }[] }
+          | null;
+        const armsLast = armsSeries?.points?.[armsSeries.points.length - 1] ?? null;
         const profiles = Array.from(profileMap.values());
 
         // Nuclear count based on confirmed status
@@ -129,10 +135,8 @@ const StatsOverlay: React.FC<StatsOverlayProps> = ({
               icon: "🛡",
             },
             {
-              label: "Arms Trade Volume (TIV)",
-              value: (
-                defenseData.total_arms_export_market_share || 0
-              ).toLocaleString(),
+              label: armsLast ? `Arms trade (${armsLast.x}, customs)` : "Arms trade",
+              value: armsLast ? `${armsLast.y.toFixed(1)}B` : "—",
               icon: "🚀",
             },
             {

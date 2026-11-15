@@ -268,6 +268,9 @@ body.night-mode .countries { filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.35
    Longhand properties on purpose: the CSS pipeline dropped the
    `background:` shorthand with url() + size, leaving background-image: none. */
 .bo-sidebar-art {
+  /* fade upward into the sidebar instead of a hard top edge */
+  -webkit-mask-image: linear-gradient(to top, #000 35%, rgba(0,0,0,0.6) 60%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 35%, rgba(0,0,0,0.6) 60%, transparent 100%);
   background-image: url("/assets/sidebar-dark.webp");
   background-position: center bottom;
   background-size: 100% auto;
@@ -301,3 +304,7 @@ body.day-mode .bo-hero-art {
 }
 .bo-hero-title { color: var(--bo-hero-text); }
 .bo-hero-sub { color: var(--bo-hero-sub); }
+
+/* Hide scrollbars but keep scrolling (wheel, touch, keyboard). */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }

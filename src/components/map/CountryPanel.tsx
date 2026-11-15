@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { X, Shield, Atom, Crown, Activity, AlertTriangle } from "lucide-react";
+import { X, Shield, Atom, Crown, Activity, AlertTriangle, Maximize2 } from "lucide-react";
+import DataViewer, { type ViewerData } from "@/components/map/DataViewer";
 import { fetchCountryProfile, type CountryProfileFull, type SeriesPoint } from "@/lib/api";
 import CountryIndicators from "@/components/map/CountryIndicators";
 import type { ActiveModule } from "@/types";
@@ -70,14 +71,51 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+// Context so any Section can open the popup without prop drilling
+const OpenViewer = React.createContext<(v: ViewerData) => void>(() => {});
+
+function Section({ title, children, view }: { title: string; children: React.ReactNode; view?: ViewerData | null }) {
+  const open = React.useContext(OpenViewer);
+  const canOpen = !!view && view.rows.length > 0;
   return (
     <section className="mt-6">
-      <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2.5">{title}</h4>
-      {children}
+      <div className="flex items-center justify-between mb-2.5">
+        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{title}</h4>
+        {canOpen && (
+          <button
+            onClick={() => open(view!)}
+            className="flex items-center gap-1 text-[10px] font-bold text-indigo-300 hover:text-white"
+            title="Open chart and full table"
+          >
+            <Maximize2 size={12} /> Table
+          </button>
+        )}
+      </div>
+      <div
+        onClick={canOpen ? () => open(view!) : undefined}
+        className={canOpen ? "cursor-zoom-in rounded-lg hover:bg-white/[0.03] transition-colors" : undefined}
+      >
+        {children}
+      </div>
     </section>
   );
 }
+
+// Builders for popup data
+const lineView = (title: string, source: string, unitLabel: string, kind: "number" | "usd", data?: SeriesPoint[] | null, scale = 1): ViewerData => ({
+  title, source, chart: "line", x: "year", y: "value", subtitle: unitLabel,
+  columns: [{ key: "year", label: "Year", kind: "text" }, { key: "value", label: unitLabel, kind }],
+  rows: (data ?? []).filter((d) => d.value !== null).map((d) => ({ year: d.year, value: Number(d.value) * scale })),
+});
+const barView = (title: string, source: string, unitLabel: string, kind: "number" | "usd" | "share", rows: { name: string; value: number; extra?: number | null }[], extraLabel?: string): ViewerData => ({
+  title, source, chart: "bar", x: "name", y: "value", subtitle: unitLabel,
+  columns: [
+    { key: "name", label: "Country", kind: "text" },
+    { key: "value", label: unitLabel, kind },
+    ...(extraLabel ? [{ key: "extra", label: extraLabel, kind: "share" as const }] : []),
+  ],
+  rows: rows.map((r) => ({ name: r.name, value: r.value, extra: r.extra ?? null })),
+});
 
 function BarList({
   rows,
@@ -89,6 +127,7 @@ function BarList({
   fmt: (v: number) => string;
 }) {
   if (!rows.length) return <p className="text-[11px] text-slate-500">No data in the graph.</p>;
+  rows = rows.slice(0, 6);
   const max = Math.max(...rows.map((r) => r.value)) || 1;
   return (
     <ul className="space-y-1.5">
@@ -136,6 +175,7 @@ export default function CountryPanel({
   const [tab, setTab] = useState<Tab>(activeModule === "simulator" ? "overview" : (activeModule as Tab));
   const [data, setData] = useState<CountryProfileFull | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [viewer, setViewer] = useState<ViewerData | null>(null);
 
   useEffect(() => {
     setTab(activeModule === "simulator" ? "overview" : (activeModule as Tab));
@@ -163,7 +203,8 @@ export default function CountryPanel({
   const totalLinks = (data?.connections ?? []).reduce((a, c) => a + c.n, 0);
 
   return (
-    <>
+    <OpenViewer.Provider value={setViewer}>
+      {viewer && <DataViewer data={viewer} onClose={() => setViewer(null)} />}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -234,7 +275,7 @@ export default function CountryPanel({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 pb-6">
+        <div className="flex-1 overflow-y-auto no-scrollbar px-5 pb-6">
           {error && (
             <p className="mt-6 text-[12px] text-amber-300 flex gap-2">
               <AlertTriangle size={14} /> {error}
@@ -265,7 +306,7 @@ export default function CountryPanel({
                   )}
                 </div>
               </Section>
-              <Section title="Connections in the knowledge graph">
+              <Section title="Connections in the knowledge graph" view={barView(`${country}: graph connections`, "Neo4j knowledge graph", "Relationships", "number", (data.connections ?? []).map((c) => ({ name: c.type.replace(/_/g, " ").toLowerCase(), value: c.n })))}>
                 <BarList
                   rows={(data.connections ?? []).slice(0, 10).map((c) => ({ name: c.type.replace(/_/g, " ").toLowerCase(), value: c.n }))}
                   color={color}
@@ -282,13 +323,13 @@ export default function CountryPanel({
                 <Stat label="Conflict deaths" value={num(conflict?.fatalities)} sub={conflict ? `${conflict.year} · ${conflict.trend ?? ""}` : undefined} />
                 <Stat label="Violent events" value={num(conflict?.violence_events)} sub={conflict ? `${conflict.year} · ACLED` : undefined} />
               </div>
-              <Section title="Defence spending (USD millions)">
+              <Section title="Defence spending (USD millions)" view={lineView(`${country}: defence spending`, "SIPRI Military Expenditure Database", "USD", "usd", data.defense_spending, 1e6)}>
                 <Spark data={data.defense_spending} color={color} />
               </Section>
-              <Section title="Conflict fatalities per year">
+              <Section title="Conflict fatalities per year" view={lineView(`${country}: conflict fatalities`, "ACLED", "Fatalities", "number", (data.conflict ?? []).map((c) => ({ year: c.year, value: c.fatalities })))}>
                 <Spark data={(data.conflict ?? []).map((c) => ({ year: c.year, value: c.fatalities }))} color={color} />
               </Section>
-              <Section title="Arms exports (SIPRI TIV)">
+              <Section title="Arms exports (SIPRI TIV)" view={lineView(`${country}: arms exports`, "SIPRI Arms Transfers (TIV)", "SIPRI TIV (millions)", "number", data.arms_exports)}>
                 <Spark data={data.arms_exports} color={color} />
                 {!data.arms_exports?.length && <p className="text-[11px] text-slate-500">Not a recorded arms exporter.</p>}
               </Section>
@@ -303,16 +344,16 @@ export default function CountryPanel({
                 <Stat label="Exports" value={usd(data.trade_totals?.exports)} sub={data.trade_totals?.year ? `${data.trade_totals.year} · BACI` : undefined} />
                 <Stat label="Imports" value={usd(data.trade_totals?.imports)} sub={data.trade_totals?.year ? `${data.trade_totals.year} · BACI` : undefined} />
               </div>
-              <Section title="GDP over time">
+              <Section title="GDP over time" view={lineView(`${country}: GDP`, "World Bank", "GDP (USD)", "usd", data.gdp)}>
                 <Spark data={data.gdp} color={color} />
               </Section>
-              <Section title="Top export markets">
+              <Section title="Top export markets" view={barView(`${country}: top export markets`, "CEPII BACI", "Exports (USD)", "usd", (data.export_partners ?? []).map((r) => ({ name: r.country, value: r.value })))}>
                 <BarList rows={(data.export_partners ?? []).map((r) => ({ name: r.country, value: r.value }))} color={color} fmt={(v) => usd(v)} />
               </Section>
-              <Section title="Top import sources">
+              <Section title="Top import sources" view={barView(`${country}: top import sources`, "CEPII BACI", "Imports (USD)", "usd", (data.import_partners ?? []).map((r) => ({ name: r.country, value: r.value })))}>
                 <BarList rows={(data.import_partners ?? []).map((r) => ({ name: r.country, value: r.value }))} color="#14b8a6" fmt={(v) => usd(v)} />
               </Section>
-              <Section title="Energy suppliers">
+              <Section title="Energy suppliers" view={barView(`${country}: energy suppliers`, "CEPII BACI (HS 27)", "Energy imports (USD)", "usd", (data.energy_suppliers ?? []).map((r) => ({ name: r.country, value: r.value, extra: r.share })), "Share of energy imports")}>
                 <BarList
                   rows={(data.energy_suppliers ?? []).map((r) => ({
                     name: r.country,
@@ -355,10 +396,10 @@ export default function CountryPanel({
               {data.bloc?.sample?.length ? (
                 <p className="text-[11px] text-slate-400 mt-2">Bloc includes: {data.bloc.sample.join(", ")}</p>
               ) : null}
-              <Section title="Votes most often with (UN General Assembly)">
+              <Section title="Votes most often with (UN General Assembly)" view={barView(`${country}: UN voting alignment`, "UNGA roll-call votes", "Vote similarity", "share", (data.aligned ?? []).map((r) => ({ name: r.country, value: r.similarity })))}>
                 <BarList rows={(data.aligned ?? []).map((r) => ({ name: r.country, value: r.similarity }))} color={color} fmt={(v) => `${Math.round(v * 100)}%`} />
               </Section>
-              <Section title="Most diplomatic events with (GDELT)">
+              <Section title="Most diplomatic events with (GDELT)" view={barView(`${country}: diplomatic events`, "GDELT 2.0", "Events", "number", (data.diplomacy ?? []).map((r) => ({ name: r.country, value: r.events })))}>
                 <BarList rows={(data.diplomacy ?? []).map((r) => ({ name: r.country, value: r.events }))} color="#6366f1" fmt={(v) => num(v)} />
               </Section>
               {(data.opposed ?? []).length > 0 && (
@@ -367,7 +408,7 @@ export default function CountryPanel({
                 </Section>
               )}
               {(data.sanctions_imposed ?? []).length > 0 && (
-                <Section title="Sanctions imposed (designated entities)">
+                <Section title="Sanctions imposed (designated entities)" view={barView(`${country}: sanctions imposed`, "OFAC SDN", "Designated entities", "number", (data.sanctions_imposed ?? []).map((r) => ({ name: r.on, value: r.entities })))}>
                   <BarList rows={(data.sanctions_imposed ?? []).map((r) => ({ name: r.on, value: r.entities }))} color="#dc2626" fmt={(v) => num(v)} />
                 </Section>
               )}
@@ -421,6 +462,6 @@ export default function CountryPanel({
           </Link>
         </div>
       </motion.aside>
-    </>
+    </OpenViewer.Provider>
   );
 }

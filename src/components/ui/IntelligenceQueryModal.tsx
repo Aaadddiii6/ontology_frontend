@@ -10,10 +10,18 @@ export const IntelligenceQueryModal: React.FC<{ showTrigger?: boolean }> = ({ sh
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [response, setResponse] = useState<any | null>(null);
+  const [pendingRun, setPendingRun] = useState<string | null>(null);
 
   // Opened by the navbar search pill, or Ctrl/Cmd+K anywhere; Esc closes.
   useEffect(() => {
-    const open = () => setIsOpen(true);
+    const open = (e: Event) => {
+      setIsOpen(true);
+      const q = (e as CustomEvent<{ query?: string }>).detail?.query;
+      if (q) {
+        setQuery(q);
+        setPendingRun(q);
+      }
+    };
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -43,6 +51,15 @@ export const IntelligenceQueryModal: React.FC<{ showTrigger?: boolean }> = ({ sh
       setIsLoading(false);
     }
   };
+
+  // Query handed over from the home "Ask the graph" card: run it once opened.
+  useEffect(() => {
+    if (pendingRun && query === pendingRun && !isLoading) {
+      setPendingRun(null);
+      handleQuery();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per handed-over query
+  }, [pendingRun, query]);
 
   return (
     <>
@@ -132,11 +149,11 @@ export const IntelligenceQueryModal: React.FC<{ showTrigger?: boolean }> = ({ sh
                     ) : (
                       <>
                         <div className="p-4 bg-slate-950 border border-white/5 rounded-xl">
-                          <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3">System Routing</h4>
+                          <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3">Graph query used</h4>
                           <div className="flex flex-wrap gap-2">
                             {response.endpoints?.map((ep: string) => (
                               <span key={ep} className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20">
-                                GET {ep}
+                                {ep}
                               </span>
                             ))}
                           </div>
@@ -147,6 +164,46 @@ export const IntelligenceQueryModal: React.FC<{ showTrigger?: boolean }> = ({ sh
                             {response.synthesized_answer || response.answer_template}
                           </p>
                         </div>
+                        {Array.isArray(response.rows) && response.rows.length > 0 && (
+                          <div className="rounded-xl border border-white/10 overflow-hidden">
+                            <div className="max-h-56 overflow-y-auto no-scrollbar">
+                              <table className="w-full text-[12px]">
+                                <thead className="bg-white/5 sticky top-0">
+                                  <tr>
+                                    {response.columns.map((col: { key: string; label: string }) => (
+                                      <th key={col.key} className="text-left px-3 py-2 font-bold text-slate-400">{col.label}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {response.rows.map((row: Record<string, unknown>, i: number) => (
+                                    <tr key={i} className="border-t border-white/5">
+                                      {response.columns.map((col: { key: string; label: string }) => {
+                                        const v = row[col.key];
+                                        const n = typeof v === "number" && (col as { format?: string }).format !== "text" ? v : null; // years/names as-is
+                                        const usd = /USD/.test(col.label);
+                                        const shown =
+                                          n === null
+                                            ? String(v ?? "—")
+                                            : usd
+                                              ? Math.abs(n) >= 1e9
+                                                ? `${(n / 1e9).toFixed(2)}B`
+                                                : Math.abs(n) >= 1e6
+                                                  ? `${(n / 1e6).toFixed(1)}M`
+                                                  : `${n.toLocaleString()}`
+                                              : n.toLocaleString(undefined, { maximumFractionDigits: 3 });
+                                        return <td key={col.key} className="px-3 py-1.5 text-slate-200 tabular-nums">{shown}</td>;
+                                      })}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            <div className="px-3 py-1.5 text-[10px] text-slate-500 border-t border-white/5">
+                              Graph query: {response.endpoints?.[0]} · understood by {response.routed_by} · written by {response.answered_by}
+                            </div>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>

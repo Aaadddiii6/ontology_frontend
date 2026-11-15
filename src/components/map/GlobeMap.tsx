@@ -644,7 +644,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
 
   return (
     <div ref={containerRef} className="relative w-full h-full" style={{ cursor: "grab" }}>
-      <div className="absolute bottom-[116px] left-6 z-10 flex flex-col bo-panel rounded-xl overflow-hidden">
+      <div className="absolute bottom-[116px] left-[344px] z-10 flex flex-col bo-panel rounded-xl overflow-hidden">
         {[
           ["+", 0.8, "Zoom in"],
           ["−", 1.25, "Zoom out"],

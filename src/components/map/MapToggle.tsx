@@ -16,7 +16,7 @@ const MapToggle: React.FC<MapToggleProps> = ({ mode, onToggle, isTransitioning }
     { flat: false, label: "3D Globe", Icon: Globe2 },
   ];
   return (
-    <div className="fixed top-[172px] left-[96px] z-[100] bo-panel rounded-full p-1 flex gap-1">
+    <div className="fixed top-[172px] left-[96px] z-[85] bo-panel rounded-full p-1 flex gap-1">
       {options.map(({ flat, label, Icon }) => {
         const active = flat === isFlat;
         return (

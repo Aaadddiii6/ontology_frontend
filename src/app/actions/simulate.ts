@@ -12,7 +12,6 @@
 //   runQuerySimulationAction plain English. Backend parses it (OpenAI → rules).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { complete, parseJSONObject } from "@/lib/llm.server";
 
 const BASE_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
 
@@ -160,108 +159,55 @@ export async function runQuerySimulationAction(params: {
 }
 
 // ─── Quick intelligence query (search modal) ────────────────────────────────
-// The LLM only picks which read-only endpoint answers the question and then
-// summarises the rows it got back. Endpoints are checked against an allowlist
-// so model output can never reach an arbitrary backend path.
+// Delegates to the backend query engine (/graph/ask): the LLM picks a safe,
+// parameterised graph query, the backend runs it, and the answer is written
+// only from the returned rows.
 
-const ENDPOINT_DOCS = [
-  "/composite/rankings/global-risk?limit=N      → [{country, global_risk}]",
-  "/composite/rankings/influence?limit=N        → [{country, strategic_influence}]",
-  "/composite/country/{name}                    → full composite profile",
-  "/defense/spending/top?limit=N                → [{country, spending_usd_millions, year}]",
-  "/defense/arms/top?limit=N                    → top arms exporters",
-  "/economy/rankings/influence?limit=N          → [{country, economic influence}]",
-  "/economy/trade-pairs?limit=N                 → biggest bilateral trade pairs",
-  "/geopolitics/rankings/centrality?limit=N     → [{country, centrality_score}]",
-  "/geopolitics/country/{name}                  → political system, sanctions",
-  "/climate/country/{name}                      → climate risk profile",
-  "/composite/coverage                          → how many countries have each score",
-];
+export interface AskColumn {
+  key: string;
+  label: string;
+  format: "text" | "number";
+}
 
-const ALLOWED = [
-  /^\/composite\/rankings\/(global-risk|influence)$/,
-  /^\/composite\/country\/[^/?#]+$/,
-  /^\/composite\/coverage$/,
-  /^\/defense\/(spending|arms)\/top$/,
-  /^\/economy\/rankings\/influence$/,
-  /^\/economy\/trade-pairs$/,
-  /^\/geopolitics\/rankings\/centrality$/,
-  /^\/geopolitics\/country\/[^/?#]+$/,
-  /^\/climate\/country\/[^/?#]+$/,
-];
+export interface AskResult {
+  endpoints: string[];
+  synthesized_answer: string;
+  rows: Record<string, unknown>[];
+  columns: AskColumn[];
+  metric_label?: string;
+  routed_by?: string;
+  answered_by?: string;
+  error?: string;
+}
 
-async function callEndpoint(endpoint: string, params: Record<string, unknown>): Promise<unknown> {
-  const path = endpoint.split("?")[0];
-  if (!ALLOWED.some((re) => re.test(path))) return null;
+export async function askGraph(question: string): Promise<AskResult> {
+  const empty = { endpoints: [], synthesized_answer: "", rows: [], columns: [] };
   try {
-    const url = new URL(`${BASE_URL}${path}`);
-    for (const [k, v] of Object.entries(params)) {
-      if (k === "limit") url.searchParams.set("limit", String(Math.min(50, Math.max(1, Number(v) || 10))));
+    const res = await fetch(`${BASE_URL}/graph/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+      signal: AbortSignal.timeout(60_000),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data) {
+      return { ...empty, error: (data && (data.detail as string)) || `Query engine returned ${res.status}` };
     }
-    const res = await fetch(url, { signal: AbortSignal.timeout(10_000), cache: "no-store" });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
+    return {
+      endpoints: [data.query],
+      synthesized_answer: data.answer,
+      rows: data.rows ?? [],
+      columns: data.columns ?? [],
+      metric_label: data.metric_label,
+      routed_by: data.routed_by,
+      answered_by: data.answered_by,
+    };
+  } catch (e) {
+    return { ...empty, error: `Backend unreachable at ${BASE_URL}: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
 
-export async function queryIntelligenceAction(query: string) {
-  let routing: { endpoints: string[]; params: Record<string, unknown> } = {
-    endpoints: ["/composite/rankings/global-risk"],
-    params: { limit: 10 },
-  };
-  const routed = await complete(
-    [
-      {
-        role: "system",
-        content:
-          "Pick 1-3 read-only API endpoints that answer the user's question about countries. " +
-          "Replace {name} with the country name. Reply as JSON: " +
-          '{"endpoints": ["/path"], "params": {"limit": 10}}\n\nEndpoints:\n' +
-          ENDPOINT_DOCS.join("\n"),
-      },
-      { role: "user", content: query },
-    ],
-    { json: true, maxTokens: 200 },
-  );
-  const parsedRouting = routed ? parseJSONObject<typeof routing>(routed.text) : null;
-  if (parsedRouting?.endpoints?.length) routing = parsedRouting;
-
-  const results: Record<string, unknown> = {};
-  for (const ep of routing.endpoints.slice(0, 3)) {
-    const data = await callEndpoint(ep, routing.params || {});
-    if (data) results[ep] = data;
-  }
-
-  let synthesized = Object.keys(results).length
-    ? "Data retrieved from the graph. See the raw rows below."
-    : "No graph data answered this question. The relevant pipeline may not be loaded yet.";
-
-  if (Object.keys(results).length) {
-    const summary = await complete(
-      [
-        {
-          role: "system",
-          content:
-            "You are an intelligence analyst. Answer in 2-4 sentences using ONLY the numbers in the data. " +
-            "If the data does not answer the question, say so. Never invent figures.",
-        },
-        {
-          role: "user",
-          content: `Question: ${query}\n\nData:\n${JSON.stringify(results).slice(0, 6000)}`,
-        },
-      ],
-      { maxTokens: 300 },
-    );
-    if (summary) synthesized = summary.text.trim();
-  }
-
-  return {
-    endpoints: Object.keys(results),
-    params: routing.params || {},
-    answer_template: "",
-    synthesized_answer: synthesized,
-    raw_data: results,
-  };
+export async function queryIntelligenceAction(query: string): Promise<AskResult> {
+  return askGraph(query);
 }

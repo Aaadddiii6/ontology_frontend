@@ -30,6 +30,7 @@ import * as topojson from "topojson-client";
 import { normalizeCountryName } from "../lib/countryData";
 import { HARDCODED_RELATIONS, RelationDomain } from "../lib/hardcodedRelations";
 import MapControls from "@/components/map/MapControls";
+import InsightCards from "@/components/map/InsightCards";
 import { useMapLayers, DEFAULT_LAYERS } from "@/hooks/useMapLayers";
 
 export default function Home() {
@@ -274,6 +275,8 @@ export default function Home() {
           />
         )}
       </AnimatePresence>
+
+      {!isPanelOpen && <InsightCards module={activeModule} />}
 
       <MapControls
         layers={layers}
