@@ -30,6 +30,45 @@ interface GlobeMapProps {
   linkOpacity?: number;
 }
 
+/**
+ * Split flat lon/lat triangles until no edge is longer than `maxEdgeDeg`.
+ * A country fill is triangulated in flat lon/lat space and then projected onto
+ * the sphere vertex by vertex; a large triangle (China, Russia...) becomes a
+ * straight chord whose middle dips BELOW the curved Earth, so fills vanished
+ * into the surface. Small triangles follow the curve.
+ */
+const tessellateLonLat = (geo: THREE.BufferGeometry, maxEdgeDeg = 3, maxIter = 5): THREE.BufferGeometry => {
+  let g = geo.index ? geo.toNonIndexed() : geo;
+  for (let it = 0; it < maxIter; it++) {
+    const p = g.attributes.position.array as ArrayLike<number>;
+    const out: number[] = [];
+    let split = false;
+    for (let i = 0; i < p.length; i += 9) {
+      const ax = p[i], ay = p[i + 1], bx = p[i + 3], by = p[i + 4], cx = p[i + 6], cy = p[i + 7];
+      const e = Math.max(Math.hypot(ax - bx, ay - by), Math.hypot(bx - cx, by - cy), Math.hypot(cx - ax, cy - ay));
+      if (e <= maxEdgeDeg) {
+        out.push(ax, ay, 0, bx, by, 0, cx, cy, 0);
+        continue;
+      }
+      split = true;
+      const abx = (ax + bx) / 2, aby = (ay + by) / 2;
+      const bcx = (bx + cx) / 2, bcy = (by + cy) / 2;
+      const cax = (cx + ax) / 2, cay = (cy + ay) / 2;
+      out.push(
+        ax, ay, 0, abx, aby, 0, cax, cay, 0,
+        abx, aby, 0, bx, by, 0, bcx, bcy, 0,
+        cax, cay, 0, bcx, bcy, 0, cx, cy, 0,
+        abx, aby, 0, bcx, bcy, 0, cax, cay, 0,
+      );
+    }
+    const next = new THREE.BufferGeometry();
+    next.setAttribute("position", new THREE.Float32BufferAttribute(out, 3));
+    g = next;
+    if (!split) break;
+  }
+  return g;
+};
+
 const geoCoordsTo3d = (
   lon: number,
   lat: number,
@@ -272,14 +311,14 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
             else shape.lineTo(lon, lat);
           });
 
-          const shapeGeo = new THREE.ShapeGeometry(shape);
+          const shapeGeo = tessellateLonLat(new THREE.ShapeGeometry(shape));
           const pos = shapeGeo.attributes.position;
           const normals = new Float32Array(pos.count * 3);
 
           for (let i = 0; i < pos.count; i++) {
             const lon = pos.getX(i);
             const lat = pos.getY(i);
-            const v = geoCoordsTo3d(lon, lat, 100.3); // Increased offset to prevent z-fighting and sphere penetration
+            const v = geoCoordsTo3d(lon, lat, 100.45); // Increased offset to prevent z-fighting and sphere penetration
             pos.setXYZ(i, v.x, v.y, v.z);
 
             const n = v.clone().normalize();
@@ -312,7 +351,7 @@ const GlobeMap: React.FC<GlobeMapProps> = ({
 
           // Outline
           const pts = ring.map(
-            ([lon, lat]: number[]) => geoCoordsTo3d(lon, lat, 100.35), // Slightly above the shape
+            ([lon, lat]: number[]) => geoCoordsTo3d(lon, lat, 100.5), // Slightly above the shape
           );
           const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
           const line = new THREE.Line(

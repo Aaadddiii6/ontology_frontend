@@ -760,6 +760,7 @@ export interface CountryProfileFull {
   risk_rank: { rank: number; of: number } | null;
   arms_suppliers?: { country: string; value: number; weapons: string[] }[];
   arms_recipients?: { country: string; value: number; weapons: string[] }[];
+  arms_companies?: { company: string; value: number; year: number; rank: number | null; arms_share: number | null }[];
 }
 
 export async function fetchCountryProfile(country: string): Promise<CountryProfileFull | null> {

@@ -347,6 +347,14 @@ export default function CountryPanel({
                   <BarList rows={(data.arms_recipients ?? []).map((r) => ({ name: r.country, value: r.value }))} color="#f97316" fmt={(v) => `${num(v)} TIV`} />
                 </Section>
               )}
+              {(data.arms_companies ?? []).length > 0 && (
+                <Section
+                  title={`Arms companies (SIPRI Top 100, ${data.arms_companies?.[0]?.year ?? ""})`}
+                  view={barView(`${country}: arms companies`, "SIPRI Top 100", "Arms revenue (USD)", "usd", (data.arms_companies ?? []).map((r) => ({ name: r.company, value: r.value * 1e6 })))}
+                >
+                  <BarList rows={(data.arms_companies ?? []).map((r) => ({ name: r.company, value: r.value * 1e6, note: r.rank ? `#${r.rank}` : undefined }))} color="#a855f7" fmt={(v) => usd(v)} />
+                </Section>
+              )}
               <Section title="Arms exports (SIPRI TIV)" view={lineView(`${country}: arms exports`, "SIPRI Arms Transfers (TIV)", "SIPRI TIV (millions)", "number", data.arms_exports)}>
                 <Spark data={data.arms_exports} color={color} />
                 {!data.arms_exports?.length && <p className="text-[11px] text-slate-500">Not a recorded arms exporter.</p>}
